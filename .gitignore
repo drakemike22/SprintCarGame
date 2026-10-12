@@ -1,0 +1,29 @@
+
+# Installed Node.js packages — can be recreated with npm install
+node_modules/
+
+# Environment files — may contain passwords, tokens, or private settings
+.env
+.env.*
+!.env.example
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Operating system clutter
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor settings and temporary files
+.vscode/*
+!.vscode/extensions.json
+
+# Test coverage output
+coverage/
+
+# Build output — generated files, not source code
+dist/
+build/
