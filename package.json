@@ -1,13 +1,22 @@
+
 {
   "name": "sprintcargame",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
+  "description": "A turn-based multiplayer sprint car racing game",
+  "main": "src/server/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/server/server.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "sprint-car",
+    "racing",
+    "multiplayer",
+    "game"
+  ],
+  "license": "UNLICENSED",
   "type": "commonjs"
 }
+
