@@ -1,3 +1,4 @@
+const { RaceCar } = require("../src/game/data/race-car");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -303,4 +304,51 @@ test("a mechanical wheel cannot be resolved twice", () => {
         () => resolveMechanicalSpinner(resolved, 4),
         /already been resolved/
     );
+});
+
+
+test("resolving the wheel applies mechanical damage to the race car", () => {
+    const raceCar = new RaceCar({
+        carId: "car-1",
+        startingPosition: { section: 0, lane: 2 }
+    });
+
+    const turn = startTurn({
+        car: testCar,
+        raceCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    const resolved = resolveMechanicalSpinner(turn, 4);
+
+    assert.equal(resolved.raceCar.status, "out-for-event");
+    assert.equal(resolved.raceCar.mechanicalDamage, "blown-motor");
+
+    // The original record remains unchanged.
+    assert.equal(raceCar.status, "running");
+    assert.equal(raceCar.mechanicalDamage, "none");
+});
+
+test("a blown tire updates the race car's status", () => {
+    const raceCar = new RaceCar({
+        carId: "car-2",
+        startingPosition: { section: 0, lane: 2 }
+    });
+
+    const turn = startTurn({
+        car: testCar,
+        raceCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    const resolved = resolveMechanicalSpinner(turn, 3);
+
+    assert.equal(resolved.raceCar.status, "out-for-race");
+    assert.equal(resolved.raceCar.mechanicalDamage, "blown-tire");
 });

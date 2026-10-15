@@ -8,6 +8,9 @@
  * Mechanical outcomes are recorded here.
  * Actual car consequences are handled separately.
  */
+const {
+    applyMechanicalResult
+} = require("./apply-mechanical-outcome");
 
 const {
     calculateMovement,
@@ -70,6 +73,7 @@ function finishTurnIfReady(turn) {
 
 function startTurn({
     car,
+    raceCar,
     currentPosition,
     occupiedPositions = [],
     movementDie,
@@ -99,6 +103,7 @@ function startTurn({
 
     const turnWithDice = {
         ...turn,
+        ...(raceCar ? { raceCar } : {}),
         dice: {
             movement: movementDie,
             laneChange: laneChangeDie,
@@ -143,13 +148,23 @@ function resolveMechanicalSpinner(turn, slot) {
 
     const result = resolveMechanicalWheel(slot);
 
-    return {
+    const resolvedTurn = {
         ...turn,
         mechanicalWheel: {
             status: "resolved",
             result
         }
     };
+
+    // Update the race-car record when one was supplied.
+    if (turn.raceCar) {
+        resolvedTurn.raceCar = applyMechanicalResult(
+            turn.raceCar,
+            result
+        );
+    }
+
+    return resolvedTurn;
 }
 
 module.exports = {
