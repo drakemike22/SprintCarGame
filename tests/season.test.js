@@ -133,9 +133,21 @@ test("a new season has no owners, draft picks, or event results", () => {
     const season = makeSeason();
 
     assert.deepEqual(season.carOwners, {});
-    assert.equal(season.draft.status, "not-started");
+    assert.equal(season.draft.status, "waiting-for-order");
     assert.deepEqual(season.draft.order, []);
     assert.deepEqual(season.draft.picks, []);
     assert.deepEqual(season.eventHistory, []);
     assert.deepEqual(season.readyPlayerIds, []);
+});
+
+
+test("a new season creates a draft for its participating players", () => {
+    const players = makePlayers(3);
+    const season = makeSeason({ players });
+
+    assert.equal(season.draft.status, "waiting-for-order");
+    assert.deepEqual(
+        season.draft.players.map((player) => player.id),
+        ["player-1", "player-2", "player-3"]
+    );
 });

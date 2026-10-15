@@ -20,6 +20,7 @@
  * This class does NOT perform the draft or run races yet. Those rules
  * will be implemented separately so we can test each part independently.
  */
+const { Draft } = require("./draft");
 
 class Season {
     constructor({ id, players, cars, eventCount }) {
@@ -171,11 +172,7 @@ class Season {
         // The draft model will fill in the order and picks later.
         // Keeping its starting status here lets the rest of the
         // application know that drafting has not begun.
-        this.draft = {
-            status: "not-started",
-            order: [],
-            picks: []
-        };
+        this.draft = new Draft(this.players);
 
         // Each completed race event can be recorded here in order.
         // We will define the result structure when we implement the
