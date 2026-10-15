@@ -255,5 +255,26 @@ class Season {
             carId
         };
     }
+    
+    startFirstEvent() {
+        // The first event can only begin after the draft is complete.
+        if (this.draft.status !== "complete") {
+            throw new Error("The draft is not complete.");
+        }
+
+        // A season can only start its first event once.
+        if (this.currentEvent !== null) {
+            throw new Error("An event has already started.");
+        }
+
+        // Create the initial event state.
+        this.currentEvent = {
+            eventNumber: 1,
+            phase: "qualifying"
+        };
+
+        return this.currentEvent;
+    }
+
 }
 module.exports = { Season };

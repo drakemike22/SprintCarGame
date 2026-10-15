@@ -284,3 +284,34 @@ test("a four-player draft finishes after 32 picks", () => {
     assert.equal(Object.keys(season.carOwners).length, 32);
     assert.equal(season.draft.status, "complete");
 });
+
+test("a season cannot start its first event before the draft is complete", () => {
+    const season = makeSeason();
+
+    assert.throws(
+        () => season.startFirstEvent(),
+        /draft is not complete/i
+    );
+});
+
+test("a completed draft starts Event 1 in qualifying", () => {
+    const season = makeSeason();
+
+    // Establish the draft order for the two players.
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    // Complete all 32 picks, alternating between the two players.
+    for (let pick = 1; pick <= 32; pick++) {
+        const playerId = season.draft.getPlayerForPick(pick);
+        const carId = cars[pick - 1].id;
+
+        season.selectCar(playerId, carId);
+    }
+
+    const event = season.startFirstEvent();
+
+    assert.deepEqual(event, {
+        eventNumber: 1,
+        phase: "qualifying"
+    });
+});
