@@ -186,6 +186,10 @@ class Season {
 
     selectCar(playerId, carId) {
         // The draft order must be established before anyone can pick.
+        if (this.draft.status === "complete") {
+            throw new Error("The draft is complete.");
+        }
+
         if (this.draft.status !== "in-progress") {
             throw new Error("The draft is not in progress.");
         }
@@ -234,6 +238,15 @@ class Season {
             playerId,
             carId
         });
+        // Finish the draft when every player has selected 10 cars.
+        const picksPerPlayer = Math.floor(
+            this.cars.length / this.players.length
+        );
+        const totalPicksNeeded = picksPerPlayer * this.players.length;
+
+        if (this.draft.picks.length >= totalPicksNeeded) {
+            this.draft.status = "complete";
+        }
         return {
             pickNumber,
             playerId,

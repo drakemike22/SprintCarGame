@@ -234,11 +234,52 @@ test("the draft rejects selections after all 32 cars have been selected", () => 
     }
 
     assert.equal(season.draft.picks.length, 32);
-    
+
     assert.throws(
         () => season.selectCar("player-1", season.cars[0].id),
         /complete/
     );
-    
 });
 
+test("a three-player draft finishes after 30 picks", () => {
+    const season = makeSeason({
+        players: makePlayers(3)
+    });
+
+    season.draft.setOrder([
+        "player-1",
+        "player-2",
+        "player-3"
+    ]);
+
+    for (let index = 0; index < 30; index++) {
+        const playerId = season.draft.getPlayerForPick(index + 1);
+        season.selectCar(playerId, season.cars[index].id);
+    }
+
+    assert.equal(season.draft.picks.length, 30);
+    assert.equal(Object.keys(season.carOwners).length, 30);
+    assert.equal(season.draft.status, "complete");
+});
+
+test("a four-player draft finishes after 32 picks", () => {
+    const season = makeSeason({
+        players: makePlayers(4)
+    });
+
+    season.draft.setOrder([
+        "player-1",
+        "player-2",
+        "player-3",
+        "player-4"
+    ]);
+
+    for (let index = 0; index < 32; index++) {
+        const playerId = season.draft.getPlayerForPick(index + 1);
+        season.selectCar(playerId, season.cars[index].id);
+    }
+
+    assert.equal(season.draft.picks.length, 32);
+    assert.equal(Object.keys(season.carOwners).length, 32);
+    assert.equal(season.draft.status, "complete");
+});
