@@ -270,7 +270,8 @@ class Season {
         // Create the initial event state.
         this.currentEvent = {
             eventNumber: 1,
-            phase: "qualifying"
+            phase: "qualifying",
+            qualifyingResults: []
         };
 
         return this.currentEvent;

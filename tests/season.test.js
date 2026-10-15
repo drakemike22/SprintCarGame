@@ -312,6 +312,7 @@ test("a completed draft starts Event 1 in qualifying", () => {
 
     assert.deepEqual(event, {
         eventNumber: 1,
-        phase: "qualifying"
+        phase: "qualifying",
+        qualifyingResults: []
     });
 });
