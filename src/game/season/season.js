@@ -183,6 +183,62 @@ class Season {
         // event begins. This starts empty; readiness rules come later.
         this.readyPlayerIds = [];
     }
-}
 
+    selectCar(playerId, carId) {
+        // The draft order must be established before anyone can pick.
+        if (this.draft.status !== "in-progress") {
+            throw new Error("The draft is not in progress.");
+        }
+
+        // Stop the draft after every car has been selected.
+        if (this.draft.picks.length >= this.cars.length) {
+            throw new Error("The draft is complete.");
+        }
+        // Confirm that this player belongs to the season.
+        const playerExists = this.players.some(
+            (player) => player.id === playerId
+        );
+
+        if (!playerExists) {
+            throw new Error("Unknown player.");
+        }
+
+        // Find the requested car in this season's roster.
+        const carExists = this.cars.some(
+            (car) => car.id === carId
+        );
+
+        if (!carExists) {
+            throw new Error("Unknown car.");
+        }
+
+        // A car can only be owned by one player this season.
+        if (Object.hasOwn(this.carOwners, carId)) {
+            throw new Error("This car is already owned.");
+        }
+
+        // Picks are numbered starting at 1.
+        const pickNumber = this.draft.picks.length + 1;
+        const expectedPlayerId =
+            this.draft.getPlayerForPick(pickNumber);
+
+        if (playerId !== expectedPlayerId) {
+            throw new Error("It is not this player's turn.");
+        }
+
+        // Record ownership and the completed draft pick.
+        this.carOwners[carId] = playerId;
+
+        this.draft.picks.push({
+            pickNumber,
+            playerId,
+            carId
+        });
+        return {
+            pickNumber,
+            playerId,
+            carId
+        };
+    }
+}
 module.exports = { Season };

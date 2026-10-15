@@ -151,3 +151,94 @@ test("a new season creates a draft for its participating players", () => {
         ["player-1", "player-2", "player-3"]
     );
 });
+
+test("a player can select an available car on their turn", () => {
+    const players = makePlayers(2);
+    const season = makeSeason({ players });
+
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    const car = season.cars[0];
+    season.selectCar("player-1", car.id);
+
+    assert.equal(season.carOwners[car.id], "player-1");
+});
+
+test("a player cannot select a car that is already owned", () => {
+    const players = makePlayers(2);
+    const season = makeSeason({ players });
+
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    const car = season.cars[0];
+
+    season.selectCar("player-1", car.id);
+
+    assert.throws(
+        () => season.selectCar("player-2", car.id),
+        /already owned/
+    );
+});
+
+test("a player cannot select a car when it is not their turn", () => {
+    const players = makePlayers(2);
+    const season = makeSeason({ players });
+
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    const car = season.cars[0];
+
+    assert.throws(
+        () => season.selectCar("player-2", car.id),
+        /turn/
+    );
+});
+
+
+test("a player cannot select a car using an unknown player ID", () => {
+    const season = makeSeason();
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    assert.throws(
+        () => season.selectCar("player-unknown", season.cars[0].id),
+        /Unknown player/
+    );
+});
+
+test("a player cannot select an unknown car", () => {
+    const season = makeSeason();
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    assert.throws(
+        () => season.selectCar("player-1", "car-unknown"),
+        /Unknown car/
+    );
+});
+
+test("a player cannot select a car before the draft order is established", () => {
+    const season = makeSeason();
+
+    assert.throws(
+        () => season.selectCar("player-1", season.cars[0].id),
+        /not in progress/
+    );
+});
+
+test("the draft rejects selections after all 32 cars have been selected", () => {
+    const season = makeSeason();
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    for (let index = 0; index < season.cars.length; index++) {
+        const playerId = season.draft.getPlayerForPick(index + 1);
+        season.selectCar(playerId, season.cars[index].id);
+    }
+
+    assert.equal(season.draft.picks.length, 32);
+    
+    assert.throws(
+        () => season.selectCar("player-1", season.cars[0].id),
+        /complete/
+    );
+    
+});
+
