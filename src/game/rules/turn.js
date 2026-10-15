@@ -3,10 +3,10 @@
  * Race Turn Rules
  * ---------------
  * Connects dice rolls, car statistics, track movement,
- * and race-event detection.
+ * race-event detection, and mechanical wheel resolution.
  *
- * Events are detected only after movement is finished.
- * Event consequences are handled by a later rules module.
+ * Mechanical outcomes are recorded here.
+ * Actual car consequences are handled separately.
  */
 
 const {
@@ -17,6 +17,10 @@ const {
 const {
     detectRaceEvent
 } = require("./events");
+
+const {
+    resolveMechanicalWheel
+} = require("./mechanical-wheel");
 
 const {
     startMovementTurn,
@@ -33,7 +37,6 @@ function validateDie(value, name) {
 
 function finishTurnIfReady(turn) {
     // The player still needs to choose a lane.
-    // Do not resolve the event until that choice is made.
     if (turn.status === "waiting-for-choice") {
         return {
             ...turn,
@@ -44,17 +47,23 @@ function finishTurnIfReady(turn) {
     }
 
     // Movement is finished or the car is stuck.
-    // Record the event detected from the original dice.
+    const result = detectRaceEvent({
+        movementDie: turn.dice.movement,
+        laneChangeDie: turn.dice.laneChange,
+        eventDie: turn.dice.event
+    });
+
     return {
         ...turn,
         eventResolution: {
             status: "resolved",
-            result: detectRaceEvent({
-                movementDie: turn.dice.movement,
-                laneChangeDie: turn.dice.laneChange,
-                eventDie: turn.dice.event
-            })
-            
+            result
+        },
+        mechanicalWheel: {
+            status:
+                result.type === "mechanical-spinner"
+                    ? "awaiting-spin"
+                    : "not-required"
         }
     };
 }
@@ -111,7 +120,41 @@ function chooseTurnPosition(turn, targetPosition) {
     return finishTurnIfReady(nextTurn);
 }
 
+function resolveMechanicalSpinner(turn, slot) {
+    if (
+        !turn ||
+        !turn.eventResolution ||
+        turn.eventResolution.status !== "resolved" ||
+        turn.eventResolution.result.type !== "mechanical-spinner"
+    ) {
+        throw new Error(
+            "The turn must have a resolved mechanical-spinner event."
+        );
+    }
+
+    if (
+        !turn.mechanicalWheel ||
+        turn.mechanicalWheel.status !== "awaiting-spin"
+    ) {
+        throw new Error(
+            "The mechanical wheel has already been resolved."
+        );
+    }
+
+    const result = resolveMechanicalWheel(slot);
+
+    return {
+        ...turn,
+        mechanicalWheel: {
+            status: "resolved",
+            result
+        }
+    };
+}
+
 module.exports = {
     startTurn,
-    chooseTurnPosition
+    chooseTurnPosition,
+    resolveMechanicalSpinner
 };
+

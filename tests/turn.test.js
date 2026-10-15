@@ -237,3 +237,70 @@ test("a pending event resolves after the lane choice finishes movement", () => {
         type: "wreck"
     });
 });
+
+
+const {
+    resolveMechanicalSpinner
+} = require("../src/game/rules/turn");
+
+test("triple ones make the mechanical wheel available", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    assert.equal(turn.eventResolution.result.type, "mechanical-spinner");
+    assert.equal(turn.mechanicalWheel.status, "awaiting-spin");
+});
+
+test("triple twos do not require a mechanical wheel", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 2,
+        laneChangeDie: 2,
+        eventDie: 2
+    });
+
+    assert.equal(turn.eventResolution.result.type, "wreck");
+    assert.equal(turn.mechanicalWheel.status, "not-required");
+});
+
+test("mechanical spinner records the selected wheel result", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    const resolved = resolveMechanicalSpinner(turn, 4);
+
+    assert.equal(resolved.mechanicalWheel.status, "resolved");
+    assert.deepEqual(resolved.mechanicalWheel.result, {
+        type: "blown-motor",
+        consequence: "out-for-event",
+        slot: 4
+    });
+});
+
+test("a mechanical wheel cannot be resolved twice", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    const resolved = resolveMechanicalSpinner(turn, 6);
+
+    assert.throws(
+        () => resolveMechanicalSpinner(resolved, 4),
+        /already been resolved/
+    );
+});
