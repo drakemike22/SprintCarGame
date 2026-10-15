@@ -1,6 +1,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { calculateLaneChange } = require("../src/game/rules/movement");
 
 const { calculateMovement } = require("../src/game/rules/movement");
 
@@ -99,5 +100,56 @@ test("movement rejects a missing die result", () => {
     assert.throws(
         () => calculateMovement(car, undefined, 4),
         /dice must be whole numbers from 1 through 6/i
+    );
+});
+test("lane-change die 1 changes zero lanes", () => {
+    assert.equal(calculateLaneChange(1), 0);
+});
+
+test("lane-change die 2 changes one lane", () => {
+    assert.equal(calculateLaneChange(2), 1);
+});
+
+test("lane-change die 3 changes two lanes", () => {
+    assert.equal(calculateLaneChange(3), 2);
+});
+
+test("lane-change die 4 changes two lanes", () => {
+    assert.equal(calculateLaneChange(4), 2);
+});
+
+test("lane-change die 5 changes three lanes", () => {
+    assert.equal(calculateLaneChange(5), 3);
+});
+
+test("lane-change die 6 changes four lanes", () => {
+    assert.equal(calculateLaneChange(6), 4);
+});
+
+test("lane-change rejects a die result below one", () => {
+    assert.throws(
+        () => calculateLaneChange(0),
+        /lane-change die must be a whole number from 1 through 6/i
+    );
+});
+
+test("lane-change rejects a die result above six", () => {
+    assert.throws(
+        () => calculateLaneChange(7),
+        /lane-change die must be a whole number from 1 through 6/i
+    );
+});
+
+test("lane-change rejects fractional die results", () => {
+    assert.throws(
+        () => calculateLaneChange(2.5),
+        /lane-change die must be a whole number from 1 through 6/i
+    );
+});
+
+test("lane-change rejects a missing die result", () => {
+    assert.throws(
+        () => calculateLaneChange(undefined),
+        /lane-change die must be a whole number from 1 through 6/i
     );
 });
