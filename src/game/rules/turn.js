@@ -1,16 +1,22 @@
+
 /*
  * Race Turn Rules
  * ---------------
- * Connects dice rolls and car statistics to track movement.
+ * Connects dice rolls, car statistics, track movement,
+ * and race-event detection.
  *
- * This module coordinates existing rules. It does not
- * resolve wrecks or mechanical failures yet.
+ * Events are detected only after movement is finished.
+ * Event consequences are handled by a later rules module.
  */
 
 const {
     calculateMovement,
     calculateLaneChange
 } = require("./movement");
+
+const {
+    detectRaceEvent
+} = require("./events");
 
 const {
     startMovementTurn,
@@ -25,6 +31,34 @@ function validateDie(value, name) {
     }
 }
 
+function finishTurnIfReady(turn) {
+    // The player still needs to choose a lane.
+    // Do not resolve the event until that choice is made.
+    if (turn.status === "waiting-for-choice") {
+        return {
+            ...turn,
+            eventResolution: {
+                status: "pending"
+            }
+        };
+    }
+
+    // Movement is finished or the car is stuck.
+    // Record the event detected from the original dice.
+    return {
+        ...turn,
+        eventResolution: {
+            status: "resolved",
+            result: detectRaceEvent({
+                movementDie: turn.dice.movement,
+                laneChangeDie: turn.dice.laneChange,
+                eventDie: turn.dice.event
+            })
+            
+        }
+    };
+}
+
 function startTurn({
     car,
     currentPosition,
@@ -33,13 +67,10 @@ function startTurn({
     laneChangeDie,
     eventDie
 }) {
-    // Validate the event die here because the movement
-    // calculation functions do not use it.
     validateDie(movementDie, "Movement die");
     validateDie(laneChangeDie, "Lane-change die");
     validateDie(eventDie, "Event die");
 
-    // Reuse the existing, tested movement rules.
     const movementAllowance = calculateMovement(
         car,
         movementDie,
@@ -50,7 +81,6 @@ function startTurn({
         laneChangeDie
     );
 
-    // Start the track movement using those calculated values.
     const turn = startMovementTurn({
         currentPosition,
         occupiedPositions,
@@ -58,9 +88,7 @@ function startTurn({
         laneChangesRemaining: laneChangeAllowance
     });
 
-    // Preserve the original roll and calculated allowances.
-    // The event die is recorded but does not trigger an event yet.
-    return {
+    const turnWithDice = {
         ...turn,
         dice: {
             movement: movementDie,
@@ -70,12 +98,17 @@ function startTurn({
         movementAllowance,
         laneChangeAllowance
     };
+
+    return finishTurnIfReady(turnWithDice);
 }
 
 function chooseTurnPosition(turn, targetPosition) {
-    // The movement module preserves additional turn properties
-    // when it copies the turn, including our dice information.
-    return chooseMovementTurnPosition(turn, targetPosition);
+    const nextTurn = chooseMovementTurnPosition(
+        turn,
+        targetPosition
+    );
+
+    return finishTurnIfReady(nextTurn);
 }
 
 module.exports = {

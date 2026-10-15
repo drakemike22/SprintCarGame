@@ -165,3 +165,75 @@ test("a turn rejects invalid car movement statistics", () => {
         /Car movement statistics/
     );
 });
+
+
+test("a completed turn resolves a triple-one mechanical event", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    assert.equal(turn.eventResolution.status, "resolved");
+    assert.deepEqual(turn.eventResolution.result, {
+        type: "mechanical-spinner"
+    });
+});
+
+test("a completed turn resolves a triple-two wreck", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 2,
+        laneChangeDie: 2,
+        eventDie: 2
+    });
+
+    assert.equal(turn.status, "complete");
+    assert.equal(turn.eventResolution.status, "resolved");
+    assert.deepEqual(turn.eventResolution.result, {
+        type: "wreck"
+    });
+});
+
+test("an event remains pending while a lane choice is required", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        occupiedPositions: [
+            { section: 26, lane: 1 }
+        ],
+        movementDie: 3,
+        laneChangeDie: 3,
+        eventDie: 3
+    });
+
+    assert.equal(turn.status, "waiting-for-choice");
+    assert.equal(turn.eventResolution.status, "pending");
+});
+
+test("a pending event resolves after the lane choice finishes movement", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        occupiedPositions: [
+            { section: 26, lane: 1 }
+        ],
+        movementDie: 3,
+        laneChangeDie: 3,
+        eventDie: 3
+    });
+
+    const result = chooseTurnPosition(
+        turn,
+        { section: 26, lane: 2 }
+    );
+
+    assert.notEqual(result.status, "waiting-for-choice");
+    assert.equal(result.eventResolution.status, "resolved");
+    assert.deepEqual(result.eventResolution.result, {
+        type: "wreck"
+    });
+});
