@@ -128,6 +128,7 @@ class Season {
         // The individual Player and Car objects are not cloned here.
         this.players = [...players];
         this.cars = [...cars];
+        this.currentEvent = null;
 
         this.eventCount = eventCount;
 
@@ -238,7 +239,7 @@ class Season {
             playerId,
             carId
         });
-        // Finish the draft when every player has selected 10 cars.
+        // Finish when the planned number of draft picks is reached.
         const picksPerPlayer = Math.floor(
             this.cars.length / this.players.length
         );
@@ -247,6 +248,7 @@ class Season {
         if (this.draft.picks.length >= totalPicksNeeded) {
             this.draft.status = "complete";
         }
+
         return {
             pickNumber,
             playerId,

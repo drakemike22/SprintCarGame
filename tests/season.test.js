@@ -138,6 +138,7 @@ test("a new season has no owners, draft picks, or event results", () => {
     assert.deepEqual(season.draft.picks, []);
     assert.deepEqual(season.eventHistory, []);
     assert.deepEqual(season.readyPlayerIds, []);
+    assert.equal(season.currentEvent, null);
 });
 
 
