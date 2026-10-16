@@ -352,3 +352,48 @@ test("a blown tire updates the race car's status", () => {
     assert.equal(resolved.raceCar.status, "out-for-race");
     assert.equal(resolved.raceCar.mechanicalDamage, "blown-tire");
 });
+
+
+test("a car that is out for the race cannot start another turn", () => {
+    const raceCar = {
+        ...new RaceCar({
+            carId: "test-car",
+            startingPosition: { section: 0, lane: 2 }
+        }),
+        status: "out-for-race"
+    };
+
+    assert.throws(
+        () => startTurn({
+            car: testCar,
+            raceCar,
+            currentPosition: raceCar.position,
+            movementDie: 3,
+            laneChangeDie: 2,
+            eventDie: 4
+        }),
+        /cannot take a turn/i
+    );
+});
+
+test("a car that is out for the event cannot start another turn", () => {
+    const raceCar = {
+        ...new RaceCar({
+            carId: "test-car",
+            startingPosition: { section: 0, lane: 2 }
+        }),
+        status: "out-for-event"
+    };
+
+    assert.throws(
+        () => startTurn({
+            car: testCar,
+            raceCar,
+            currentPosition: raceCar.position,
+            movementDie: 3,
+            laneChangeDie: 2,
+            eventDie: 4
+        }),
+        /cannot take a turn/i
+    );
+});

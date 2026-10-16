@@ -8,6 +8,8 @@
  * Mechanical outcomes are recorded here.
  * Actual car consequences are handled separately.
  */
+const { CAR_STATUSES } = require("./car-status");
+
 const {
     applyMechanicalResult
 } = require("./apply-mechanical-outcome");
@@ -93,6 +95,13 @@ function startTurn({
     const laneChangeAllowance = calculateLaneChange(
         laneChangeDie
     );
+    
+    if (
+        raceCar &&
+        raceCar.status !== CAR_STATUSES.RUNNING
+    ) {
+        throw new Error("This car cannot take a turn.");
+    }
 
     const turn = startMovementTurn({
         currentPosition,
