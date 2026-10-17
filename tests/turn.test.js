@@ -1,7 +1,10 @@
 const { RaceCar } = require("../src/game/data/race-car");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-
+const {
+    resolveMechanicalSpinner,
+    resolveWreckSpinner,
+} = require("../src/game/rules/turn");
 const {
     startTurn,
     chooseTurnPosition
@@ -240,10 +243,6 @@ test("a pending event resolves after the lane choice finishes movement", () => {
 });
 
 
-const {
-    resolveMechanicalSpinner
-} = require("../src/game/rules/turn");
-
 test("triple ones make the mechanical wheel available", () => {
     const turn = startTurn({
         car: testCar,
@@ -397,3 +396,75 @@ test("a car that is out for the event cannot start another turn", () => {
         /cannot take a turn/i
     );
 });
+
+
+test("triple twos make the wreck wheel available", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 2,
+        laneChangeDie: 2,
+        eventDie: 2
+    });
+
+    assert.equal(turn.eventResolution.result.type, "wreck");
+    assert.equal(turn.wreckWheel.status, "awaiting-spin");
+});
+
+test("triple ones do not require the wreck wheel", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 1,
+        laneChangeDie: 1,
+        eventDie: 1
+    });
+
+    assert.equal(turn.eventResolution.result.type, "mechanical-spinner");
+    assert.equal(turn.wreckWheel.status, "not-required");
+});
+
+test("a normal turn does not require the wreck wheel", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 2,
+        laneChangeDie: 3,
+        eventDie: 4
+    });
+
+    assert.deepEqual(turn.eventResolution.result, {
+        type: "none"
+    });
+    assert.equal(turn.wreckWheel.status, "not-required");
+});
+
+
+test("resolving a wreck spinner records the selected outcome", () => {
+    const raceCar = new RaceCar({
+        carId: "wreck-test-car",
+        startingPosition: { section: 0, lane: 2 }
+    });
+
+    const turn = startTurn({
+        car: testCar,
+        raceCar,
+        currentPosition: { section: 0, lane: 2 },
+        movementDie: 2,
+        laneChangeDie: 2,
+        eventDie: 2
+    });
+
+    const resolved = resolveWreckSpinner(turn, 1);
+
+    assert.equal(resolved.wreckWheel.status, "resolved");
+    assert.equal(resolved.wreckWheel.result.slot, 1);
+    assert.equal(resolved.wreckWheel.result.type, "close-call");
+
+    // A close call has no consequence for the race car.
+    assert.equal(resolved.raceCar.status, "running");
+
+    // Resolving the turn must not mutate the original race-car record.
+    assert.equal(raceCar.status, "running");
+});
+

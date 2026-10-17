@@ -10,6 +10,9 @@
  */
 const { CAR_STATUSES } = require("./car-status");
 
+const { resolveWreckWheel } = require("./wreck-wheel");
+const { resolveWreck } = require("./resolve-wreck");
+
 const {
     applyMechanicalResult
 } = require("./apply-mechanical-outcome");
@@ -40,18 +43,25 @@ function validateDie(value, name) {
     }
 }
 
+
 function finishTurnIfReady(turn) {
-    // The player still needs to choose a lane.
+    // The player still needs to choose a lane before the event can resolve.
     if (turn.status === "waiting-for-choice") {
         return {
             ...turn,
             eventResolution: {
                 status: "pending"
+            },
+            mechanicalWheel: {
+                status: "pending"
+            },
+            wreckWheel: {
+                status: "pending"
             }
         };
     }
 
-    // Movement is finished or the car is stuck.
+    // Movement is finished or the car is stuck, so determine the event.
     const result = detectRaceEvent({
         movementDie: turn.dice.movement,
         laneChangeDie: turn.dice.laneChange,
@@ -67,6 +77,12 @@ function finishTurnIfReady(turn) {
         mechanicalWheel: {
             status:
                 result.type === "mechanical-spinner"
+                    ? "awaiting-spin"
+                    : "not-required"
+        },
+        wreckWheel: {
+            status:
+                result.type === "wreck"
                     ? "awaiting-spin"
                     : "not-required"
         }
@@ -176,9 +192,78 @@ function resolveMechanicalSpinner(turn, slot) {
     return resolvedTurn;
 }
 
+
+function resolveWreckSpinner(turn, slot, occupiedPositions = []) {
+    if (
+        !turn ||
+        !turn.eventResolution ||
+        turn.eventResolution.status !== "resolved" ||
+        !turn.eventResolution.result ||
+        turn.eventResolution.result.type !== "wreck"
+    ) {
+        throw new Error(
+            "The turn must have a resolved wreck event."
+        );
+    }
+
+    if (
+        !turn.wreckWheel ||
+        turn.wreckWheel.status !== "awaiting-spin"
+    ) {
+        throw new Error(
+            "The wreck wheel has already been resolved."
+        );
+    }
+
+    // Resolve the selected slot using the existing wreck rules.
+    // If a race-car record exists, also apply its direct consequence.
+    let outcome;
+    let wreckResolution = {
+        yellowFlag: false,
+        goToBack: false,
+        followOnSpins: []
+    };
+    let updatedRaceCar = turn.raceCar;
+
+    if (turn.raceCar) {
+        const resolution = resolveWreck({
+            raceCar: turn.raceCar,
+            slot,
+            occupiedPositions
+        });
+
+        outcome = resolution.outcome;
+        updatedRaceCar = resolution.raceCar;
+
+        wreckResolution = {
+            yellowFlag: resolution.yellowFlag,
+            goToBack: resolution.goToBack,
+            followOnSpins: resolution.followOnSpins
+        };
+    } else {
+        outcome = resolveWreckWheel(slot);
+    }
+
+    const resolvedTurn = {
+        ...turn,
+        wreckWheel: {
+            status: "resolved",
+            result: outcome
+        },
+        wreckResolution
+    };
+
+    if (turn.raceCar) {
+        resolvedTurn.raceCar = updatedRaceCar;
+    }
+
+    return resolvedTurn;
+}
+
 module.exports = {
     startTurn,
     chooseTurnPosition,
-    resolveMechanicalSpinner
+    resolveMechanicalSpinner,
+    resolveWreckSpinner
 };
 
