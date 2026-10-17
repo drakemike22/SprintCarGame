@@ -8,6 +8,7 @@
  * movement, wrecks, mechanical outcomes, or yellow-flag restarts.
  * Those rules remain in their own modules.
  */
+const { applyRaceProgress } = require("./apply-race-progress");
 
 const {
     ROUND_STATUS,
@@ -120,10 +121,54 @@ function stopRaceRoundForYellow(raceState) {
     return raceState;
 }
 
+
+/*
+ * Applies a finished movement turn to the correct race car.
+ *
+ * The existing race-progress module calculates distance and laps.
+ * After updating the car, the coordinator advances the round.
+ */
+function applyCompletedRaceTurn(raceState, carId, turn) {
+    if (!raceState || !Array.isArray(raceState.raceCars)) {
+        throw new Error("A valid race state is required.");
+    }
+
+    if (raceState.status !== "running") {
+        throw new Error("The race is not accepting completed turns.");
+    }
+
+    const currentCarId = getCurrentTurnCarId(raceState.round);
+
+    if (currentCarId !== carId) {
+        throw new Error("The car does not have the current turn.");
+    }
+
+    const carIndex = raceState.raceCars.findIndex(
+        raceCar => raceCar.carId === carId
+    );
+
+    if (carIndex === -1) {
+        throw new Error("The current race car could not be found.");
+    }
+
+    const updatedCar = applyRaceProgress(
+        raceState.raceCars[carIndex],
+        turn
+    );
+
+    raceState.raceCars[carIndex] = updatedCar;
+
+    completeRaceCarTurn(raceState, carId);
+
+    return raceState;
+}
+
+
 module.exports = {
     createRaceState,
     getCurrentRaceCar,
     completeRaceCarTurn,
     skipRaceCarTurn,
-    stopRaceRoundForYellow
+    stopRaceRoundForYellow,
+    applyCompletedRaceTurn
 };

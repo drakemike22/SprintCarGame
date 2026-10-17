@@ -7,7 +7,8 @@ const {
     getCurrentRaceCar,
     completeRaceCarTurn,
     skipRaceCarTurn,
-    stopRaceRoundForYellow
+    stopRaceRoundForYellow,
+    applyCompletedRaceTurn
 } = require("../src/game/rules/race-coordinator");
 
 const { CAR_STATUSES } = require("../src/game/rules/car-status");
@@ -100,5 +101,81 @@ test("rejects a non-array of race cars", () => {
     assert.throws(
         () => createRaceState(null),
         /array/
+    );
+});
+
+
+test("applies movement progress and advances to the next car", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ]
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const updatedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.deepEqual(updatedCar.position, { section: 14, lane: 2 });
+    assert.equal(updatedCar.distance, 2);
+    assert.equal(updatedCar.completedLaps, 0);
+    assert.equal(getCurrentRaceCar(race).carId, "car-a");
+});
+
+test("counts a lap when a completed turn crosses the finish line", () => {
+    const race = createRaceState([
+        makeCar("car-a", 29)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 1, lane: 2 },
+        history: [
+            { section: 29, lane: 2 },
+            { section: 0, lane: 2 },
+            { section: 1, lane: 2 }
+        ]
+    };
+
+    applyCompletedRaceTurn(race, "car-a", turn);
+
+    assert.equal(race.raceCars[0].completedLaps, 1);
+    assert.equal(race.raceCars[0].distance, 2);
+    assert.deepEqual(
+        race.raceCars[0].position,
+        { section: 1, lane: 2 }
+    );
+    assert.equal(race.status, "round-complete");
+});
+
+test("rejects a completed turn from the wrong car", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 13, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 }
+        ]
+    };
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-a", turn),
+        /current turn/
     );
 });
