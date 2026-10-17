@@ -160,6 +160,17 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         );
     }
 
+    // A wreck wheel must be spun before the turn can finish.
+    if (
+        turn &&
+        turn.wreckWheel &&
+        turn.wreckWheel.status === "awaiting-spin"
+    ) {
+        throw new Error(
+            "The wreck wheel must be resolved before completing the turn."
+        );
+    }
+
 
     const currentCarId = getCurrentTurnCarId(raceState.round);
 

@@ -330,3 +330,34 @@ test("preserves out-for-event status after a blown motor", () => {
     assert.equal(updatedCar.distance, 2);
     assert.equal(getCurrentRaceCar(race).carId, "car-a");
 });
+
+
+test("does not advance a turn while the wreck wheel awaits a spin", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 13, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 }
+        ],
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "awaiting-spin"
+        }
+    };
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /wreck wheel/i
+    );
+
+    assert.equal(getCurrentRaceCar(race).carId, "car-b");
+});
