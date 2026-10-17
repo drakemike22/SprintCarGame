@@ -179,3 +179,61 @@ test("rejects a completed turn from the wrong car", () => {
         /current turn/
     );
 });
+
+
+test("does not advance a turn when the event is still pending", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 13, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 }
+        ],
+        eventResolution: {
+            status: "pending"
+        }
+    };
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /event/i
+    );
+
+    assert.equal(getCurrentRaceCar(race).carId, "car-b");
+});
+
+
+test("does not advance a turn while the mechanical wheel awaits a spin", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 13, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 }
+        ],
+        eventResolution: {
+            status: "resolved",
+            result: { type: "mechanical-spinner" }
+        },
+        mechanicalWheel: {
+            status: "awaiting-spin"
+        }
+    };
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /mechanical wheel/i
+    );
+
+    assert.equal(getCurrentRaceCar(race).carId, "car-b");
+});

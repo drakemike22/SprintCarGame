@@ -137,6 +137,30 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         throw new Error("The race is not accepting completed turns.");
     }
 
+    
+    // A movement turn cannot advance the round while its event is pending.
+    if (
+        turn &&
+        turn.eventResolution &&
+        turn.eventResolution.status !== "resolved"
+    ) {
+        throw new Error(
+            "The race event must be resolved before completing the turn."
+        );
+    }
+
+    // A mechanical wheel must be spun before the turn can finish.
+    if (
+        turn &&
+        turn.mechanicalWheel &&
+        turn.mechanicalWheel.status === "awaiting-spin"
+    ) {
+        throw new Error(
+            "The mechanical wheel must be resolved before completing the turn."
+        );
+    }
+
+
     const currentCarId = getCurrentTurnCarId(raceState.round);
 
     if (currentCarId !== carId) {
