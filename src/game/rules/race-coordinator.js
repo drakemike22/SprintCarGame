@@ -175,10 +175,21 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         throw new Error("The current race car could not be found.");
     }
 
-    const updatedCar = applyRaceProgress(
-        raceState.raceCars[carIndex],
-        turn
-    );
+    
+    // Start with the race car's current state.
+    const currentCar = raceState.raceCars[carIndex];
+
+    // Preserve status and mechanical damage recorded by turn resolution.
+    const resolvedCar = turn.raceCar
+        ? {
+            ...currentCar,
+            status: turn.raceCar.status,
+            mechanicalDamage: turn.raceCar.mechanicalDamage
+        }
+        : currentCar;
+
+    // Apply movement progress without losing the resolved mechanical state.
+    const updatedCar = applyRaceProgress(resolvedCar, turn);
 
     raceState.raceCars[carIndex] = updatedCar;
 

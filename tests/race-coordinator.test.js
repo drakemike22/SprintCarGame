@@ -237,3 +237,96 @@ test("does not advance a turn while the mechanical wheel awaits a spin", () => {
 
     assert.equal(getCurrentRaceCar(race).carId, "car-b");
 });
+
+
+test("preserves mechanical outcomes when applying completed movement", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const mechanicallyDamagedCar = {
+        ...makeCar("car-b", 12),
+        status: CAR_STATUSES.OUT_FOR_RACE,
+        mechanicalDamage: "blown-tire"
+    };
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: mechanicallyDamagedCar,
+        eventResolution: {
+            status: "resolved",
+            result: { type: "mechanical-spinner" }
+        },
+        mechanicalWheel: {
+            status: "resolved",
+            result: {
+                type: "blown-tire",
+                consequence: "out-for-race"
+            }
+        }
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const updatedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.deepEqual(updatedCar.position, { section: 14, lane: 2 });
+    assert.equal(updatedCar.distance, 2);
+    assert.equal(updatedCar.status, CAR_STATUSES.OUT_FOR_RACE);
+    assert.equal(updatedCar.mechanicalDamage, "blown-tire");
+    assert.equal(getCurrentRaceCar(race).carId, "car-a");
+});
+
+
+test("preserves out-for-event status after a blown motor", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: {
+            ...makeCar("car-b", 12),
+            status: CAR_STATUSES.OUT_FOR_EVENT,
+            mechanicalDamage: "blown-motor"
+        },
+        eventResolution: {
+            status: "resolved",
+            result: { type: "mechanical-spinner" }
+        },
+        mechanicalWheel: {
+            status: "resolved",
+            result: {
+                type: "blown-motor",
+                consequence: "out-for-event"
+            }
+        }
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const updatedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.equal(updatedCar.status, CAR_STATUSES.OUT_FOR_EVENT);
+    assert.equal(updatedCar.mechanicalDamage, "blown-motor");
+    assert.equal(updatedCar.distance, 2);
+    assert.equal(getCurrentRaceCar(race).carId, "car-a");
+});
