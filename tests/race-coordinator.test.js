@@ -8,7 +8,8 @@ const {
     completeRaceCarTurn,
     skipRaceCarTurn,
     stopRaceRoundForYellow,
-    applyCompletedRaceTurn
+    applyCompletedRaceTurn,
+    restartRaceAfterYellow
 } = require("../src/game/rules/race-coordinator");
 
 const { CAR_STATUSES } = require("../src/game/rules/car-status");
@@ -667,4 +668,245 @@ test("rejects duplicate follow-on cars without partially updating the race", () 
     );
 
     assert.deepEqual(race, originalState);
+});
+
+
+test("restarts a yellow-flag race with running cars single-file in lane 2", () => {
+    const race = createRaceState([
+        makeCar("leader", 25),
+        makeCar("second", 22),
+        makeCar("third", 18),
+        makeCar("fourth", 14)
+    ]);
+
+    stopRaceRoundForYellow(race);
+    restartRaceAfterYellow(race);
+
+    assert.equal(race.status, "running");
+    assert.equal(race.yellowFlag, false);
+    assert.equal(race.round.status, "in-progress");
+
+    // The leader remains first, and the other cars line up behind.
+    assert.deepEqual(
+        race.round.order,
+        ["leader", "second", "third", "fourth"]
+    );
+
+    assert.deepEqual(
+        race.raceCars.map(car => ({
+            carId: car.carId,
+            position: car.position
+        })).sort((a, b) => a.carId.localeCompare(b.carId)),
+        [
+            { carId: "fourth", position: { section: 22, lane: 2 } },
+            { carId: "leader", position: { section: 25, lane: 2 } },
+            { carId: "second", position: { section: 24, lane: 2 } },
+            { carId: "third", position: { section: 23, lane: 2 } }
+        ]
+    );
+
+    assert.equal(getCurrentRaceCar(race).carId, "leader");
+});
+
+test("keeps cars out for the race or event off the restart lineup", () => {
+    const race = createRaceState([
+        makeCar("leader", 25),
+        makeCar("running-car", 20),
+        makeCar("out-race", 18, 2, CAR_STATUSES.OUT_FOR_RACE),
+        makeCar("out-event", 15, 2, CAR_STATUSES.OUT_FOR_EVENT)
+    ]);
+
+    stopRaceRoundForYellow(race);
+    restartRaceAfterYellow(race);
+
+    assert.deepEqual(race.round.order, ["leader", "running-car"]);
+
+    assert.deepEqual(
+        race.raceCars.find(car => car.carId === "out-race").position,
+        { section: 18, lane: 2 }
+    );
+
+    assert.deepEqual(
+        race.raceCars.find(car => car.carId === "out-event").position,
+        { section: 15, lane: 2 }
+    );
+});
+
+test("rejects restarting a race that has not been stopped for a yellow flag", () => {
+    const race = createRaceState([
+        makeCar("leader", 25),
+        makeCar("second", 20)
+    ]);
+
+    assert.throws(
+        () => restartRaceAfterYellow(race),
+        /yellow/i
+    );
+});
+
+
+test("restarts after a yellow-flag wreck with the incident cars at the back", () => {
+    const race = createRaceState([
+        makeCar("leader", 25),
+        makeCar("wreck-car", 12),
+        makeCar("spinner-one", 11),
+        makeCar("spinner-two", 10)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: makeCar("wreck-car", 12),
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 5,
+                type: "spin-out",
+                consequence: "go-to-back",
+                yellowFlag: true
+            }
+        },
+        wreckResolution: {
+            yellowFlag: true,
+            goToBack: true,
+            followOnSpins: [
+                { carId: "spinner-one", slot: 5 },
+                { carId: "spinner-two", slot: 5 }
+            ]
+        }
+    };
+
+    const leaderTurn = {
+    status: "complete",
+    position: { section: 26, lane: 2 },
+    history: [
+        { section: 25, lane: 2 },
+        { section: 26, lane: 2 }
+    ],
+    raceCar: makeCar("leader", 25),
+    eventResolution: {
+        status: "resolved",
+        result: { type: "none" }
+    }
+};
+
+applyCompletedRaceTurn(race, "leader", leaderTurn);
+applyCompletedRaceTurn(race, "wreck-car", turn);
+
+    assert.equal(race.status, "yellow-flag");
+    assert.equal(race.yellowFlag, true);
+    assert.equal(getCurrentRaceCar(race), null);
+
+    restartRaceAfterYellow(race);
+
+    assert.equal(race.status, "running");
+    assert.equal(race.yellowFlag, false);
+    assert.deepEqual(
+        race.round.order,
+        ["leader", "wreck-car", "spinner-one", "spinner-two"]
+    );
+
+    assert.deepEqual(
+        race.raceCars
+            .filter(car => race.round.order.includes(car.carId))
+            .map(car => ({
+                carId: car.carId,
+                position: car.position
+            }))
+            .sort((a, b) =>
+                race.round.order.indexOf(a.carId) -
+                race.round.order.indexOf(b.carId)
+            ),
+        [
+            { carId: "leader", position: { section: 26, lane: 2 } },
+            { carId: "wreck-car", position: { section: 25, lane: 2 } },
+            { carId: "spinner-one", position: { section: 24, lane: 2 } },
+            { carId: "spinner-two", position: { section: 23, lane: 2 } }
+        ]
+    );
+});
+
+test("keeps cars out for the race or event out of a yellow restart lineup", () => {
+    const race = createRaceState([
+        makeCar("leader", 25),
+        makeCar("wreck-car", 12),
+        makeCar("out-race", 10, 2, CAR_STATUSES.OUT_FOR_RACE),
+        makeCar("out-event", 8, 2, CAR_STATUSES.OUT_FOR_EVENT)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: {
+            ...makeCar("wreck-car", 12),
+            status: CAR_STATUSES.OUT_FOR_RACE
+        },
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 4,
+                type: "hit-wall-hard",
+                consequence: "out-for-race",
+                yellowFlag: true
+            }
+        },
+        wreckResolution: {
+            yellowFlag: true,
+            goToBack: false,
+            followOnSpins: []
+        }
+    };
+
+    const leaderTurn = {
+    status: "complete",
+    position: { section: 26, lane: 2 },
+    history: [
+        { section: 25, lane: 2 },
+        { section: 26, lane: 2 }
+    ],
+    raceCar: makeCar("leader", 25),
+    eventResolution: {
+        status: "resolved",
+        result: { type: "none" }
+    }
+};
+
+applyCompletedRaceTurn(race, "leader", leaderTurn);
+applyCompletedRaceTurn(race, "wreck-car", turn);
+    restartRaceAfterYellow(race);
+
+    assert.deepEqual(race.round.order, ["leader"]);
+
+    assert.equal(
+        race.raceCars.find(car => car.carId === "wreck-car").status,
+        CAR_STATUSES.OUT_FOR_RACE
+    );
+
+    assert.deepEqual(
+        race.raceCars.find(car => car.carId === "out-race").position,
+        { section: 10, lane: 2 }
+    );
+
+    assert.deepEqual(
+        race.raceCars.find(car => car.carId === "out-event").position,
+        { section: 8, lane: 2 }
+    );
 });

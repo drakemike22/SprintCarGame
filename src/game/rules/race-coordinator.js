@@ -10,6 +10,7 @@
  */
 const { applyRaceProgress } = require("./apply-race-progress");
 const { resolveWreck } = require("./resolve-wreck");
+
 const {
     ROUND_STATUS,
     createTurnRound,
@@ -46,7 +47,8 @@ function createRaceState(raceCars) {
         status: round.status === ROUND_STATUS.COMPLETED
             ? "completed"
             : "running",
-        yellowFlag: false
+        yellowFlag: false,
+        yellowFlagCarsToBack: []
     };
 }
 
@@ -109,17 +111,93 @@ function skipRaceCarTurn(raceState, carId) {
  * Stops the current round immediately when a yellow flag occurs.
  * Incident resolution and restart positioning will be added later.
  */
-function stopRaceRoundForYellow(raceState) {
+
+function stopRaceRoundForYellow(raceState, carsToBack = []) {
     if (!raceState || !raceState.round) {
         throw new Error("A valid race state is required.");
     }
 
+    if (!Array.isArray(carsToBack) ||
+        !carsToBack.every(carId => typeof carId === "string")) {
+        throw new Error("Cars to send to the back must be an array of car IDs.");
+    }
+
     endTurnRoundForYellow(raceState.round);
+
     raceState.yellowFlag = true;
     raceState.status = "yellow-flag";
+    raceState.yellowFlagCarsToBack = [...new Set(carsToBack)];
 
     return raceState;
 }
+
+
+/*
+ * Restarts a race after a yellow flag.
+ *
+ * Running cars are sorted by their current race positions.
+ * Incident-involved cars are moved to the back of that order.
+ * The lineup is then placed single-file in lane 2, starting
+ * with the leader at their current section and following cars
+ * one section behind. Section numbering wraps from 0 to 29.
+ *
+ * Cars that are out for the race or event remain off the lineup.
+ */
+function restartRaceAfterYellow(raceState) {
+    if (!raceState || !Array.isArray(raceState.raceCars) ||
+        !raceState.round) {
+        throw new Error("A valid race state is required.");
+    }
+
+    if (
+        raceState.status !== "yellow-flag" ||
+        raceState.yellowFlag !== true ||
+        raceState.round.status !== ROUND_STATUS.ENDED_BY_YELLOW
+    ) {
+        throw new Error("The race must be stopped for a yellow flag before restarting.");
+    }
+
+    // Determine the current running order from the updated car positions.
+    const currentOrder = createTurnRound(raceState.raceCars).order;
+    const carsToBack = new Set(raceState.yellowFlagCarsToBack || []);
+
+    // Keep uninvolved running cars ahead of the incident-involved cars.
+    const orderedCarIds = [
+        ...currentOrder.filter(carId => !carsToBack.has(carId)),
+        ...currentOrder.filter(carId => carsToBack.has(carId))
+    ];
+
+    if (orderedCarIds.length > 0) {
+        const leader = raceState.raceCars.find(
+            raceCar => raceCar.carId === orderedCarIds[0]
+        );
+
+        const leaderSection = leader.position.section;
+
+        // Place every running car in a unique lane-2 space behind the leader.
+        for (let i = 0; i < orderedCarIds.length; i++) {
+            const raceCar = raceState.raceCars.find(
+                car => car.carId === orderedCarIds[i]
+            );
+
+            raceCar.position = {
+                section: (leaderSection - i + 30) % 30,
+                lane: 2
+            };
+        }
+    }
+
+    // Build a fresh round from the new positions and lineup.
+    raceState.round = createTurnRound(raceState.raceCars);
+    raceState.yellowFlag = false;
+    raceState.status = raceState.round.status === ROUND_STATUS.COMPLETED
+        ? "round-complete"
+        : "running";
+    raceState.yellowFlagCarsToBack = [];
+
+    return raceState;
+}
+
 
 /*
  * Applies a finished movement turn to the correct race car.
@@ -278,10 +356,19 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
 
     // A wreck that raises a yellow flag ends the current round
     // immediately, so the next car cannot take a normal turn.
+    
     if (turn.wreckResolution?.yellowFlag === true) {
-        stopRaceRoundForYellow(raceState);
+        // The original wreck car and all follow-on spinners go to the back
+        // if they are still eligible to restart.
+        const carsToBack = [
+            carId,
+            ...followOnSpins.map(followOn => followOn.carId)
+        ];
+
+        stopRaceRoundForYellow(raceState, carsToBack);
         return raceState;
     }
+
 
     completeRaceCarTurn(raceState, carId);
     return raceState;
@@ -293,5 +380,6 @@ module.exports = {
     completeRaceCarTurn,
     skipRaceCarTurn,
     stopRaceRoundForYellow,
+    restartRaceAfterYellow,
     applyCompletedRaceTurn
 };
