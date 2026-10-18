@@ -9,7 +9,7 @@
  * Those rules remain in their own modules.
  */
 const { applyRaceProgress } = require("./apply-race-progress");
-
+const { resolveWreck } = require("./resolve-wreck");
 const {
     ROUND_STATUS,
     createTurnRound,
@@ -121,7 +121,6 @@ function stopRaceRoundForYellow(raceState) {
     return raceState;
 }
 
-
 /*
  * Applies a finished movement turn to the correct race car.
  *
@@ -137,7 +136,6 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         throw new Error("The race is not accepting completed turns.");
     }
 
-    
     // A movement turn cannot advance the round while its event is pending.
     if (
         turn &&
@@ -171,7 +169,6 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         );
     }
 
-
     const currentCarId = getCurrentTurnCarId(raceState.round);
 
     if (currentCarId !== carId) {
@@ -181,14 +178,14 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
     const carIndex = raceState.raceCars.findIndex(
         raceCar => raceCar.carId === carId
     );
-
     if (carIndex === -1) {
         throw new Error("The current race car could not be found.");
     }
-
     
+    // Work on a separate array so failures cannot partially update the live race state.
+    const stagedRaceCars = raceState.raceCars.slice();
     // Start with the race car's current state.
-    const currentCar = raceState.raceCars[carIndex];
+    const currentCar = stagedRaceCars[carIndex];
 
     // Preserve status and mechanical damage recorded by turn resolution.
     const resolvedCar = turn.raceCar
@@ -199,16 +196,96 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         }
         : currentCar;
 
-    // Apply movement progress without losing the resolved mechanical state.
+    // Calculate movement without changing the live race.
     const updatedCar = applyRaceProgress(resolvedCar, turn);
+    stagedRaceCars[carIndex] = updatedCar;
 
-    raceState.raceCars[carIndex] = updatedCar;
+    // Resolve each explicitly identified follow-on car on the staged copy.
+    // Follow-on results cannot trigger additional spins or another yellow.
+    const followOnSpins = turn.wreckResolution?.followOnSpins || [];
+
+    if (!Array.isArray(followOnSpins)) {
+        throw new Error("Follow-on spins must be an array.");
+    }
+
+    // Validate every car reference before calculating punishments.
+    const followOnCarIds = new Set();
+
+    for (const followOn of followOnSpins) {
+        if (!followOn || typeof followOn.carId !== "string") {
+            throw new Error("Each follow-on spin must identify a car.");
+        }
+
+        if (followOnCarIds.has(followOn.carId)) {
+            throw new Error(
+                `Follow-on car "${followOn.carId}" cannot be listed more than once.`
+            );
+        }
+
+        followOnCarIds.add(followOn.carId);
+
+        const followOnIndex = stagedRaceCars.findIndex(
+            raceCar => raceCar.carId === followOn.carId
+        );
+
+        if (followOnIndex === -1) {
+            throw new Error(
+                `Follow-on spin car "${followOn.carId}" was not found.`
+            );
+        }
+
+        if (followOn.carId === carId) {
+            throw new Error(
+                "The original wreck car cannot also be a follow-on car."
+            );
+        }
+    }
+
+    // Calculate each punishment on the staged copy.
+    for (const followOn of followOnSpins) {
+        const followOnIndex = stagedRaceCars.findIndex(
+            raceCar => raceCar.carId === followOn.carId
+        );
+
+        const followOnCar = stagedRaceCars[followOnIndex];
+
+        // Other cars occupy their current staged positions during
+        // backward movement, including the original car's updated position.
+        const occupiedPositions = stagedRaceCars
+            .filter(raceCar => raceCar.carId !== followOn.carId)
+            .map(raceCar => raceCar.position);
+
+        const result = resolveWreck({
+            raceCar: followOnCar,
+            slot: followOn.slot,
+            occupiedPositions
+        });
+
+        // Only apply the punishment. Follow-on spins cannot create
+        // more follow-on spins or independently trigger a yellow flag.
+        stagedRaceCars[followOnIndex] = {
+            ...followOnCar,
+            position: { ...result.raceCar.position },
+            completedLaps: result.raceCar.completedLaps,
+            status: result.raceCar.status
+        };
+    }
+
+    // All calculations succeeded. Now apply the staged changes to the race.
+    for (let i = 0; i < stagedRaceCars.length; i++) {
+        raceState.raceCars[i] = stagedRaceCars[i];
+    }
+
+    // A wreck that raises a yellow flag ends the current round
+    // immediately, so the next car cannot take a normal turn.
+    if (turn.wreckResolution?.yellowFlag === true) {
+        stopRaceRoundForYellow(raceState);
+        return raceState;
+    }
 
     completeRaceCarTurn(raceState, carId);
-
     return raceState;
 }
-
 
 module.exports = {
     createRaceState,

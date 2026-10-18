@@ -361,3 +361,310 @@ test("does not advance a turn while the wreck wheel awaits a spin", () => {
 
     assert.equal(getCurrentRaceCar(race).carId, "car-b");
 });
+
+
+test("applies a resolved close-call wreck and advances normally", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: makeCar("car-b", 12),
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 1,
+                type: "close-call",
+                consequence: "none"
+            }
+        },
+        wreckResolution: {
+            yellowFlag: false,
+            goToBack: false,
+            followOnSpins: []
+        }
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const updatedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.deepEqual(
+        updatedCar.position,
+        { section: 14, lane: 2 }
+    );
+    assert.equal(updatedCar.status, CAR_STATUSES.RUNNING);
+    assert.equal(race.yellowFlag, false);
+    assert.equal(race.status, "running");
+    assert.equal(getCurrentRaceCar(race).carId, "car-a");
+});
+
+
+test("applies a resolved wreck that raises a yellow flag", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 18),
+        makeCar("car-c", 12)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: {
+            ...makeCar("car-b", 12),
+            status: CAR_STATUSES.OUT_FOR_RACE
+        },
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 4,
+                type: "hit-wall-hard",
+                consequence: "out-for-race",
+                yellowFlag: true
+            }
+        },
+        wreckResolution: {
+            yellowFlag: true,
+            goToBack: false,
+            followOnSpins: []
+        }
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const wreckedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.equal(wreckedCar.status, CAR_STATUSES.OUT_FOR_RACE);
+    assert.equal(race.yellowFlag, true);
+    assert.equal(race.status, "yellow-flag");
+    assert.equal(getCurrentRaceCar(race), null);
+});
+
+
+test("applies a follow-on spin to the car immediately behind a wreck", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12),
+        makeCar("car-c", 11)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: makeCar("car-b", 12),
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 3,
+                type: "bicycle-big",
+                consequence: "backward-3",
+                yellowFlag: false,
+                followOnSpins: [1]
+            }
+        },
+        wreckResolution: {
+            yellowFlag: false,
+            goToBack: false,
+            followOnSpins: [
+                { carId: "car-c", slot: 2 }
+            ]
+        }
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const followingCar = race.raceCars.find(
+        car => car.carId === "car-c"
+    );
+
+    assert.deepEqual(
+        followingCar.position,
+        { section: 8, lane: 2 }
+    );
+    assert.equal(race.yellowFlag, false);
+});
+
+
+test("applies separate punishments to multiple follow-on cars", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12),
+        makeCar("car-c", 11),
+        makeCar("car-d", 10)
+    ]);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: makeCar("car-b", 12),
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 3,
+                type: "bicycle-big",
+                consequence: "backward-3",
+                yellowFlag: false,
+                followOnSpins: [1]
+            }
+        },
+        wreckResolution: {
+            yellowFlag: false,
+            goToBack: false,
+            followOnSpins: [
+                { carId: "car-c", slot: 2 },
+                { carId: "car-d", slot: 1 }
+            ]
+        }
+    };
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const carC = race.raceCars.find(car => car.carId === "car-c");
+    const carD = race.raceCars.find(car => car.carId === "car-d");
+
+    assert.equal(carC.position.section, 8);
+    assert.equal(carD.position.section, 10);
+});
+
+test("rejects an invalid follow-on car without partially updating the race", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12),
+        makeCar("car-c", 11)
+    ]);
+
+    const originalState = structuredClone(race);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: makeCar("car-b", 12),
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 3,
+                type: "bicycle-big",
+                consequence: "backward-3",
+                yellowFlag: false,
+                followOnSpins: [1]
+            }
+        },
+        wreckResolution: {
+            yellowFlag: false,
+            goToBack: false,
+            followOnSpins: [
+                { carId: "car-c", slot: 2 },
+                { carId: "missing-car", slot: 1 }
+            ]
+        }
+    };
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /Follow-on spin car "missing-car" was not found/
+    );
+
+    assert.deepEqual(race, originalState);
+});
+
+test("rejects duplicate follow-on cars without partially updating the race", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12),
+        makeCar("car-c", 11)
+    ]);
+
+    const originalState = structuredClone(race);
+
+    const turn = {
+        status: "complete",
+        position: { section: 14, lane: 2 },
+        history: [
+            { section: 12, lane: 2 },
+            { section: 13, lane: 2 },
+            { section: 14, lane: 2 }
+        ],
+        raceCar: makeCar("car-b", 12),
+        eventResolution: {
+            status: "resolved",
+            result: { type: "wreck" }
+        },
+        wreckWheel: {
+            status: "resolved",
+            result: {
+                slot: 3,
+                type: "bicycle-big",
+                consequence: "backward-3",
+                yellowFlag: false,
+                followOnSpins: [1]
+            }
+        },
+        wreckResolution: {
+            yellowFlag: false,
+            goToBack: false,
+            followOnSpins: [
+                { carId: "car-c", slot: 2 },
+                { carId: "car-c", slot: 1 }
+            ]
+        }
+    };
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /Follow-on car "car-c" cannot be listed more than once/
+    );
+
+    assert.deepEqual(race, originalState);
+});
