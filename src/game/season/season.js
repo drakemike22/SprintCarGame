@@ -21,7 +21,7 @@
  * will be implemented separately so we can test each part independently.
  */
 const { Draft } = require("./draft");
-
+const { QualifyingSession } = require("./qualifying-session");
 class Season {
     constructor({ id, players, cars, eventCount }) {
         // ---------------------------------------------------------
@@ -256,6 +256,7 @@ class Season {
         };
     }
     
+    
     startFirstEvent() {
         // The first event can only begin after the draft is complete.
         if (this.draft.status !== "complete") {
@@ -267,15 +268,27 @@ class Season {
             throw new Error("An event has already started.");
         }
 
-        // Create the initial event state.
+        // Qualifying includes only drafted cars. Using the draft pick
+        // order gives every car a defined qualifying turn order.
+        const qualifyingCarIds = this.draft.picks.map(
+            (pick) => pick.carId
+        );
+
+        const qualifyingSession = new QualifyingSession(
+            qualifyingCarIds
+        );
+
+        // Create the initial event state and attach its qualifying session.
         this.currentEvent = {
             eventNumber: 1,
             phase: "qualifying",
-            qualifyingResults: []
+            qualifyingResults: [],
+            qualifyingSession
         };
 
         return this.currentEvent;
     }
+
 
 }
 module.exports = { Season };

@@ -14,7 +14,9 @@ const assert = require("node:assert/strict");
 const { Season } = require("../src/game/season/season");
 const { Player } = require("../src/game/season/player");
 const { cars } = require("../src/game/data/cars");
-
+const {
+    QualifyingSession
+} = require("../src/game/season/qualifying-session");
 // Create fresh Player objects for each test so tests do not depend
 // on changes made by another test.
 
@@ -310,9 +312,89 @@ test("a completed draft starts Event 1 in qualifying", () => {
 
     const event = season.startFirstEvent();
 
-    assert.deepEqual(event, {
-        eventNumber: 1,
-        phase: "qualifying",
-        qualifyingResults: []
+    assert.equal(event.eventNumber, 1);
+    assert.equal(event.phase, "qualifying");
+    assert.deepEqual(event.qualifyingResults, []);
+
+    assert.ok(event.qualifyingSession instanceof QualifyingSession);
+    assert.equal(event.qualifyingSession.isComplete, false);
+    assert.equal(event.qualifyingSession.carIds.length, 32);
+});
+
+
+test("starting the first event creates a qualifying session for drafted cars", () => {
+    const season = makeSeason();
+
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    for (let pick = 1; pick <= 32; pick++) {
+        const playerId = season.draft.getPlayerForPick(pick);
+        const carId = season.cars[pick - 1].id;
+
+        season.selectCar(playerId, carId);
+    }
+
+    const event = season.startFirstEvent();
+
+    assert.ok(event.qualifyingSession instanceof QualifyingSession);
+
+    assert.deepEqual(
+        event.qualifyingSession.carIds,
+        season.draft.picks.map((pick) => pick.carId)
+    );
+
+    assert.equal(event.phase, "qualifying");
+    assert.equal(event.qualifyingSession.isComplete, false);
+});
+
+test("a three-player event qualifies only the 30 drafted cars", () => {
+    const season = makeSeason({
+        players: makePlayers(3)
     });
+
+    season.draft.setOrder([
+        "player-1",
+        "player-2",
+        "player-3"
+    ]);
+
+    for (let pick = 1; pick <= 30; pick++) {
+        const playerId = season.draft.getPlayerForPick(pick);
+        const carId = season.cars[pick - 1].id;
+
+        season.selectCar(playerId, carId);
+    }
+
+    const event = season.startFirstEvent();
+
+    assert.equal(event.qualifyingSession.carIds.length, 30);
+
+    const draftedCarIds = new Set(
+        season.draft.picks.map((pick) => pick.carId)
+    );
+
+    assert.deepEqual(
+        new Set(event.qualifyingSession.carIds),
+        draftedCarIds
+    );
+});
+
+test("starting the first event still cannot happen twice", () => {
+    const season = makeSeason();
+
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    for (let pick = 1; pick <= 32; pick++) {
+        const playerId = season.draft.getPlayerForPick(pick);
+        const carId = season.cars[pick - 1].id;
+
+        season.selectCar(playerId, carId);
+    }
+
+    season.startFirstEvent();
+
+    assert.throws(
+        () => season.startFirstEvent(),
+        /already started/
+    );
 });
