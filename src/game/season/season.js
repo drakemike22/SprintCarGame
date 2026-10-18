@@ -365,6 +365,60 @@ class Season {
 
         return result;
     }
+    /*
+     * Build the four heat starting lineups from final qualifying results.
+     *
+     * Qualifying position determines the heat using a repeating
+     * four-car rotation:
+     *
+     * Positions 1-4: Heat 1-4, starting position 1
+     * Positions 5-8: Heat 1-4, starting position 2
+     *
+     * The same pattern continues through the field.
+     */
+    createHeatLineups() {
+        const session = this.getQualifyingSession();
+
+        // Heat assignments must use final standings, never partial results.
+        if (!session.isComplete) {
+            throw new Error(
+                "Qualifying must be complete before creating heat lineups."
+            );
+        }
+
+        const qualifyingResults = session.getResults();
+
+        // Create four empty heats before assigning any cars.
+        const heats = Array.from({ length: 4 }, (_, index) => ({
+            heatNumber: index + 1,
+            entries: []
+        }));
+
+        // The qualifying results are already sorted by distance,
+        // with qualifying order resolving ties.
+        qualifyingResults.forEach((result, index) => {
+            const qualifyingPosition = index + 1;
+
+            // Positions 1, 5, 9, etc. go to Heat 1.
+            // Positions 2, 6, 10, etc. go to Heat 2, and so on.
+            const heatIndex = index % 4;
+
+            // Every group of four qualifying positions fills the
+            // next starting position in each heat.
+            const startingPosition = Math.floor(index / 4) + 1;
+
+            heats[heatIndex].entries.push({
+                carId: result.carId,
+                qualifyingPosition,
+                startingPosition
+            });
+        });
+
+        // Save the lineups on the event so later race logic can use them.
+        this.currentEvent.heatLineups = heats;
+
+        return heats;
+    }
 
 }
 module.exports = { Season };

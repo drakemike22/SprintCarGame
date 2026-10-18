@@ -538,3 +538,146 @@ test("qualifying cannot start another run after every car has finished", () => {
         /already completed qualifying/
     );
 });
+
+
+function completeQualifying(season, event, distanceForCar) {
+    const carIds = event.qualifyingSession.carIds;
+
+    for (let index = 0; index < carIds.length; index++) {
+        season.startNextQualifyingRun();
+
+        const spaces = distanceForCar
+            ? distanceForCar(index)
+            : 3;
+
+        season.recordQualifyingRoll(spaces);
+        season.recordQualifyingRoll(spaces);
+        season.recordQualifyingRoll(spaces);
+    }
+}
+
+test("qualifying results are distributed across four heat lineups", () => {
+    const { season, event } = startQualifyingSeason();
+
+    completeQualifying(season, event);
+
+    const heats = season.createHeatLineups();
+
+    assert.equal(heats.length, 4);
+    assert.deepEqual(
+        heats.map((heat) => heat.heatNumber),
+        [1, 2, 3, 4]
+    );
+    assert.deepEqual(
+        heats.map((heat) => heat.entries.length),
+        [8, 8, 8, 8]
+    );
+
+    // Every drafted car must appear in exactly one heat.
+    const assignedCarIds = heats.flatMap((heat) =>
+        heat.entries.map((entry) => entry.carId)
+    );
+
+    assert.equal(assignedCarIds.length, 32);
+    assert.equal(new Set(assignedCarIds).size, 32);
+});
+
+test("30 qualifying cars are distributed as 8, 8, 7, and 7", () => {
+    const { season, event } = startQualifyingSeason(3);
+
+    completeQualifying(season, event);
+
+    const heats = season.createHeatLineups();
+
+    assert.deepEqual(
+        heats.map((heat) => heat.entries.length),
+        [8, 8, 7, 7]
+    );
+
+    const assignedCarIds = heats.flatMap((heat) =>
+        heat.entries.map((entry) => entry.carId)
+    );
+
+    assert.equal(assignedCarIds.length, 30);
+    assert.equal(new Set(assignedCarIds).size, 30);
+});
+
+test("heat lineups follow qualifying rank and assign starting positions", () => {
+    const { season, event } = startQualifyingSeason();
+
+    // Give each car a different qualifying distance.
+    // Earlier cars in the qualifying order receive higher distances.
+    completeQualifying(
+        season,
+        event,
+        (index) => event.qualifyingSession.carIds.length - index
+    );
+
+    const heats = season.createHeatLineups();
+
+    // Qualifying position 1 starts first in Heat 1.
+    assert.deepEqual(heats[0].entries[0], {
+        carId: event.qualifyingSession.carIds[0],
+        qualifyingPosition: 1,
+        startingPosition: 1
+    });
+
+    // Qualifying position 5 starts second in Heat 1.
+    assert.deepEqual(heats[0].entries[1], {
+        carId: event.qualifyingSession.carIds[4],
+        qualifyingPosition: 5,
+        startingPosition: 2
+    });
+
+    // Qualifying position 2 starts first in Heat 2.
+    assert.deepEqual(heats[1].entries[0], {
+        carId: event.qualifyingSession.carIds[1],
+        qualifyingPosition: 2,
+        startingPosition: 1
+    });
+});
+
+test("heat lineups cannot be created before qualifying is complete", () => {
+    const { season } = startQualifyingSeason();
+
+    assert.throws(
+        () => season.createHeatLineups(),
+        /qualifying.*complete/i
+    );
+});
+
+test("early-ending qualifiers are assigned according to final qualifying rank", () => {
+    const { season, event } = startQualifyingSeason();
+
+    // The first car records 5 spaces before its run ends early.
+    season.startNextQualifyingRun();
+    season.recordQualifyingRoll(5);
+    season.finishQualifyingRun("wreck");
+
+    // All remaining cars qualify with 6 spaces in total.
+    for (
+        let index = 1;
+        index < event.qualifyingSession.carIds.length;
+        index++
+    ) {
+        season.startNextQualifyingRun();
+        season.recordQualifyingRoll(2);
+        season.recordQualifyingRoll(2);
+        season.recordQualifyingRoll(2);
+    }
+
+    const heats = season.createHeatLineups();
+
+    // The early-ending car has the lowest distance, so it ranks last.
+    const lastQualifier = event.qualifyingResults.at(-1);
+
+    assert.equal(lastQualifier.carId, event.qualifyingSession.carIds[0]);
+    assert.equal(lastQualifier.distance, 5);
+
+    // With 32 cars, qualifying position 32 goes to Heat 4, position 8.
+    assert.deepEqual(heats[3].entries[7], {
+        carId: event.qualifyingSession.carIds[0],
+        qualifyingPosition: 32,
+        startingPosition: 8
+    });
+});
