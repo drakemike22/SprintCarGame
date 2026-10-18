@@ -289,6 +289,82 @@ class Season {
         return this.currentEvent;
     }
 
+    /*
+     * Return the active qualifying session.
+     *
+     * These checks prevent qualifying actions before an event starts
+     * or after the event has moved to another phase.
+     */
+    getQualifyingSession() {
+        if (this.currentEvent === null) {
+            throw new Error("No event has started.");
+        }
+
+        if (this.currentEvent.phase !== "qualifying") {
+            throw new Error("The current event is not in qualifying.");
+        }
+
+        return this.currentEvent.qualifyingSession;
+    }
+
+    /*
+     * Start the next car's qualifying attempt.
+     *
+     * QualifyingSession owns the run order and prevents two cars
+     * from qualifying at the same time.
+     */
+    startNextQualifyingRun() {
+        const session = this.getQualifyingSession();
+
+        return session.startNextRun();
+    }
+
+    /*
+     * Copy final rankings into the event once every car has finished.
+     *
+     * Until qualifying is complete, qualifyingResults stays empty.
+     * This prevents the rest of the game from treating partial
+     * standings as the final qualifying order.
+     */
+    syncQualifyingResults() {
+        const session = this.getQualifyingSession();
+
+        if (!session.isComplete) {
+            return;
+        }
+
+        this.currentEvent.qualifyingResults = session.getResults();
+    }
+
+    /*
+     * Record one qualifying roll for the active car.
+     *
+     * QualifyingSession automatically finishes a normal run after
+     * three rolls. We then publish standings if this was the last car.
+     */
+    recordQualifyingRoll(spaces) {
+        const session = this.getQualifyingSession();
+
+        const result = session.recordRoll(spaces);
+
+        this.syncQualifyingResults();
+
+        return result;
+    }
+
+    /*
+     * End a qualifying run early because of a wreck or mechanical
+     * failure, then publish final standings if all cars are done.
+     */
+    finishQualifyingRun(reason) {
+        const session = this.getQualifyingSession();
+
+        const result = session.finishCurrentRun(reason);
+
+        this.syncQualifyingResults();
+
+        return result;
+    }
 
 }
 module.exports = { Season };

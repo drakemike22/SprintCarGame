@@ -49,6 +49,29 @@ function makeSeason(overrides = {}) {
     });
 }
 
+function startQualifyingSeason(playerCount = 2) {
+    const season = makeSeason({
+        players: makePlayers(playerCount)
+    });
+
+    const playerIds = season.players.map((player) => player.id);
+    season.draft.setOrder(playerIds);
+
+    const picksNeeded =
+        Math.floor(season.cars.length / playerCount) * playerCount;
+
+    for (let pick = 1; pick <= picksNeeded; pick++) {
+        const playerId = season.draft.getPlayerForPick(pick);
+        const carId = season.cars[pick - 1].id;
+
+        season.selectCar(playerId, carId);
+    }
+
+    const event = season.startFirstEvent();
+
+    return { season, event };
+}
+
 test("a valid season stores its starting information", () => {
     const players = makePlayers(2);
 
@@ -396,5 +419,122 @@ test("starting the first event still cannot happen twice", () => {
     assert.throws(
         () => season.startFirstEvent(),
         /already started/
+    );
+});
+
+
+test("the season can start the next qualifying run", () => {
+    const { season, event } = startQualifyingSeason();
+
+    const result = season.startNextQualifyingRun();
+
+    assert.equal(result.carId, event.qualifyingSession.carIds[0]);
+    assert.equal(event.qualifyingSession.activeResult, result);
+    assert.deepEqual(event.qualifyingResults, []);
+});
+
+test("the season records qualifying rolls and finishes a normal run after three", () => {
+    const { season, event } = startQualifyingSeason();
+
+    const result = season.startNextQualifyingRun();
+
+    season.recordQualifyingRoll(4);
+    season.recordQualifyingRoll(6);
+
+    assert.equal(result.rollsCompleted, 2);
+    assert.equal(result.distance, 10);
+    assert.deepEqual(event.qualifyingResults, []);
+
+    season.recordQualifyingRoll(5);
+
+    assert.equal(result.rollsCompleted, 3);
+    assert.equal(result.distance, 15);
+    assert.equal(result.isFinished, true);
+    assert.equal(result.finishReason, "three-rolls");
+    assert.equal(event.qualifyingSession.activeResult, null);
+
+    // Final standings must wait until every car has qualified.
+    assert.deepEqual(event.qualifyingResults, []);
+});
+
+test("the season publishes ranked qualifying results after every car finishes", () => {
+    const { season, event } = startQualifyingSeason();
+
+    const carIds = event.qualifyingSession.carIds;
+
+    for (let index = 0; index < carIds.length; index++) {
+        season.startNextQualifyingRun();
+
+        // The first car records 30 spaces; all others record 3.
+        const spacesPerRoll = index === 0 ? 10 : 1;
+
+        season.recordQualifyingRoll(spacesPerRoll);
+        season.recordQualifyingRoll(spacesPerRoll);
+        season.recordQualifyingRoll(spacesPerRoll);
+    }
+
+    assert.equal(event.qualifyingSession.isComplete, true);
+    assert.equal(event.qualifyingResults.length, carIds.length);
+    assert.deepEqual(
+        event.qualifyingResults,
+        event.qualifyingSession.getResults()
+    );
+
+    assert.equal(event.qualifyingResults[0].carId, carIds[0]);
+    assert.equal(event.qualifyingResults[0].distance, 30);
+});
+
+test("early qualifying finishes are included in the final standings", () => {
+    const { season, event } = startQualifyingSeason();
+
+    const firstCarId = event.qualifyingSession.carIds[0];
+
+    season.startNextQualifyingRun();
+    season.recordQualifyingRoll(5);
+
+    const earlyResult = season.finishQualifyingRun("wreck");
+
+    assert.equal(earlyResult.carId, firstCarId);
+    assert.equal(earlyResult.finishReason, "wreck");
+    assert.equal(earlyResult.distance, 5);
+    assert.deepEqual(event.qualifyingResults, []);
+
+    // Finish every remaining car normally with a higher distance.
+    for (
+        let index = 1;
+        index < event.qualifyingSession.carIds.length;
+        index++
+    ) {
+        season.startNextQualifyingRun();
+        season.recordQualifyingRoll(2);
+        season.recordQualifyingRoll(2);
+        season.recordQualifyingRoll(2);
+    }
+
+    assert.equal(event.qualifyingSession.isComplete, true);
+    assert.equal(event.qualifyingResults.length, 32);
+    assert.equal(
+        event.qualifyingResults[event.qualifyingResults.length - 1].carId,
+        firstCarId
+    );
+    assert.equal(
+        event.qualifyingResults[event.qualifyingResults.length - 1].finishReason,
+        "wreck"
+    );
+});
+
+test("qualifying cannot start another run after every car has finished", () => {
+    const { season, event } = startQualifyingSeason();
+
+    for (let index = 0; index < event.qualifyingSession.carIds.length; index++) {
+        season.startNextQualifyingRun();
+        season.recordQualifyingRoll(1);
+        season.recordQualifyingRoll(1);
+        season.recordQualifyingRoll(1);
+    }
+
+    assert.throws(
+        () => season.startNextQualifyingRun(),
+        /already completed qualifying/
     );
 });
