@@ -22,6 +22,9 @@
  */
 const { Draft } = require("./draft");
 const { QualifyingSession } = require("./qualifying-session");
+const {
+    createRaceResults
+} = require("../rules/race-results");
 class Season {
     constructor({ id, players, cars, eventCount }) {
         // ---------------------------------------------------------
@@ -376,35 +379,36 @@ class Season {
      *
      * The same pattern continues through the field.
      */
+        /*
+     * Build the four heat starting lineups from final qualifying results.
+     *
+     * Qualifying position determines the heat using a repeating
+     * four-car rotation. Once lineups are created, the event moves
+     * from qualifying to the heats phase.
+     */
     createHeatLineups() {
         const session = this.getQualifyingSession();
 
-        // Heat assignments must use final standings, never partial results.
         if (!session.isComplete) {
             throw new Error(
                 "Qualifying must be complete before creating heat lineups."
             );
         }
 
+        if (this.currentEvent.heatLineups) {
+            throw new Error("Heat lineups have already been created.");
+        }
+
         const qualifyingResults = session.getResults();
 
-        // Create four empty heats before assigning any cars.
         const heats = Array.from({ length: 4 }, (_, index) => ({
             heatNumber: index + 1,
             entries: []
         }));
 
-        // The qualifying results are already sorted by distance,
-        // with qualifying order resolving ties.
         qualifyingResults.forEach((result, index) => {
             const qualifyingPosition = index + 1;
-
-            // Positions 1, 5, 9, etc. go to Heat 1.
-            // Positions 2, 6, 10, etc. go to Heat 2, and so on.
             const heatIndex = index % 4;
-
-            // Every group of four qualifying positions fills the
-            // next starting position in each heat.
             const startingPosition = Math.floor(index / 4) + 1;
 
             heats[heatIndex].entries.push({
@@ -414,11 +418,256 @@ class Season {
             });
         });
 
-        // Save the lineups on the event so later race logic can use them.
         this.currentEvent.heatLineups = heats;
+
+        // Keep each heat's results separate. An empty results array
+        // means that heat has not been run or officially recorded yet.
+        this.currentEvent.heatResults = heats.map((heat) => ({
+            heatNumber: heat.heatNumber,
+            results: []
+        }));
+
+        this.currentEvent.phase = "heats";
 
         return heats;
     }
+
+    /*
+     * Record the official finishing order for one heat.
+     *
+     * createRaceResults handles finishing positions and transfer spots.
+     * This method validates that the supplied finishers match the
+     * cars assigned to the selected heat.
+     */
+    recordHeatResults(heatNumber, finishers) {
+        if (this.currentEvent === null) {
+            throw new Error("No event has started.");
+        }
+
+        if (this.currentEvent.phase !== "heats") {
+            throw new Error("The current event is not in the heats phase.");
+        }
+
+        if (!Number.isInteger(heatNumber) ||
+            heatNumber < 1 ||
+            heatNumber > 4) {
+            throw new Error("Heat number must be between 1 and 4.");
+        }
+
+        const heat = this.currentEvent.heatLineups[heatNumber - 1];
+        const heatResult = this.currentEvent.heatResults[heatNumber - 1];
+
+        if (heatResult.results.length > 0) {
+            throw new Error("Results have already been recorded for this heat.");
+        }
+
+        if (!Array.isArray(finishers)) {
+            throw new Error("Heat finishers must be provided as an array.");
+        }
+
+        const expectedCarIds = heat.entries.map((entry) => entry.carId);
+        const suppliedCarIds = finishers.map((finisher) => finisher?.carId);
+
+        // Every car assigned to the heat must appear exactly once.
+        if (
+            suppliedCarIds.length !== expectedCarIds.length ||
+            new Set(suppliedCarIds).size !== suppliedCarIds.length ||
+            expectedCarIds.some((carId) => !suppliedCarIds.includes(carId))
+        ) {
+            throw new Error(
+                "Heat finishers must contain every assigned car exactly once."
+            );
+        }
+
+        const results = createRaceResults(finishers);
+
+        heatResult.results = results;
+
+        return results;
+    }
+
+    /*
+     * Build the B-main lineup after all four heats have official results.
+     *
+     * Cars that earned a transfer spot are already qualified for the
+     * A-main. Cars marked out-for-event cannot continue in the event.
+     * Remaining eligible cars are collected in heat order, preserving
+     * their finishing order within each heat.
+     */
+    createBMainLineup() {
+        if (this.currentEvent === null) {
+            throw new Error("No event has started.");
+        }
+
+        if (this.currentEvent.phase !== "heats") {
+            throw new Error("The current event is not in the heats phase.");
+        }
+
+        const allHeatsRecorded = this.currentEvent.heatResults.every(
+            (heatResult) => heatResult.results.length > 0
+        );
+
+        if (!allHeatsRecorded) {
+            throw new Error(
+                "All four heats must have results before creating the B-main lineup."
+            );
+        }
+
+        const entries = [];
+
+        for (const heatResult of this.currentEvent.heatResults) {
+            for (const result of heatResult.results) {
+                if (
+                    result.eligibleToTransfer &&
+                    result.transferPosition === null
+                ) {
+                    entries.push({
+                        carId: result.carId,
+                        heatNumber: heatResult.heatNumber,
+                        heatFinishingPosition: result.finishingPosition
+                    });
+                }
+            }
+        }
+
+        this.currentEvent.bMainLineup = {
+            entries
+        };
+
+        this.currentEvent.phase = "b-main";
+
+        return this.currentEvent.bMainLineup;
+    }
+    /**
+     * Records the B-main finishing order and awards transfer positions.
+     *
+     * The first four eligible finishers transfer to the A-main.
+     * Cars marked out-for-event cannot transfer, so the next eligible
+     * finisher inherits the available transfer position.
+     */
+    recordBMainResults(finishers) {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        if (this.currentEvent.phase !== "b-main") {
+            throw new Error(
+                "B-main results can only be recorded during the B-main."
+            );
+        }
+
+        const lineup = this.currentEvent.bMainLineup;
+
+        if (!lineup) {
+            throw new Error("The B-main lineup has not been created.");
+        }
+
+        if (this.currentEvent.bMainResults) {
+            throw new Error("B-main results have already been recorded.");
+        }
+
+        if (!Array.isArray(finishers)) {
+            throw new Error("Finishers must be provided as an array.");
+        }
+
+        // Every car in the lineup must finish exactly once in the results.
+        const expectedCarIds = lineup.entries.map((entry) => entry.carId);
+        const actualCarIds = finishers.map((finisher) => finisher?.carId);
+
+        if (
+            actualCarIds.length !== expectedCarIds.length ||
+            new Set(actualCarIds).size !== actualCarIds.length ||
+            expectedCarIds.some((carId) => !actualCarIds.includes(carId))
+        ) {
+            throw new Error(
+                "B-main results must include every lineup car exactly once."
+            );
+        }
+
+        const results = createRaceResults(finishers);
+
+        this.currentEvent.bMainResults = results;
+        this.currentEvent.phase = "a-main";
+
+        return results;
+    }
+
+    /**
+     * Builds the A-main lineup from the heat and B-main transfers.
+     *
+     * Heat transfers start ahead of B-main transfers. Within the heat
+     * transfers, the same finishing position is grouped across heats:
+     * all first-place finishers, then all second-place finishers, etc.
+     */
+    createAMainLineup() {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        if (this.currentEvent.phase !== "a-main") {
+            throw new Error(
+                "The A-main lineup can only be created after B-main results."
+            );
+        }
+
+        if (this.currentEvent.aMainLineup) {
+            throw new Error("The A-main lineup has already been created.");
+        }
+
+        if (!this.currentEvent.heatResults ||
+            this.currentEvent.heatResults.some(
+                (heat) => heat.results.length === 0
+            )) {
+            throw new Error("All heat results must be recorded first.");
+        }
+
+        if (!this.currentEvent.bMainResults) {
+            throw new Error("B-main results must be recorded first.");
+        }
+
+        // Sort the heat transfers by transfer position, then heat number.
+        // This places all heat winners first, followed by all second-place
+        // finishers, and so on.
+        const heatTransfers = this.currentEvent.heatResults
+            .flatMap((heat) =>
+                heat.results
+                    .filter((result) => result.transferPosition !== null)
+                    .map((result) => ({
+                        carId: result.carId,
+                        source: "heat",
+                        heatNumber: heat.heatNumber,
+                        transferPosition: result.transferPosition
+                    }))
+            )
+            .sort((a, b) =>
+                a.transferPosition - b.transferPosition ||
+                a.heatNumber - b.heatNumber
+            );
+
+        // B-main transfer positions already reflect the finishing order
+        // after ineligible out-for-event cars have been skipped.
+        const bMainTransfers = this.currentEvent.bMainResults
+            .filter((result) => result.transferPosition !== null)
+            .sort((a, b) =>
+                a.transferPosition - b.transferPosition
+            )
+            .map((result) => ({
+                carId: result.carId,
+                source: "b-main",
+                transferPosition: result.transferPosition
+            }));
+
+        const entries = [...heatTransfers, ...bMainTransfers]
+            .map((entry, index) => ({
+                ...entry,
+                startingPosition: index + 1
+            }));
+
+        this.currentEvent.aMainLineup = { entries };
+
+        return this.currentEvent.aMainLineup;
+    }
+
 
 }
 module.exports = { Season };

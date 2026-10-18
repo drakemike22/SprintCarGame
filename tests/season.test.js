@@ -10,7 +10,9 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-
+const {
+    createRaceResults
+} = require("../src/game/rules/race-results");
 const { Season } = require("../src/game/season/season");
 const { Player } = require("../src/game/season/player");
 const { cars } = require("../src/game/data/cars");
@@ -680,4 +682,251 @@ test("early-ending qualifiers are assigned according to final qualifying rank", 
         qualifyingPosition: 32,
         startingPosition: 8
     });
+});
+
+test("creating heat lineups initializes separate heat results", () => {
+    const { season, event } = startQualifyingSeason();
+
+    completeQualifying(season, event);
+    const heats = season.createHeatLineups();
+
+    assert.equal(heats.length, 4);
+
+    // Each heat needs its own result record. A heat's results
+    // must not overwrite another heat's results.
+    assert.equal(event.heatResults.length, 4);
+
+    for (let index = 0; index < 4; index++) {
+        assert.equal(event.heatResults[index].heatNumber, index + 1);
+        assert.deepEqual(event.heatResults[index].results, []);
+    }
+});
+
+test("recording a heat result identifies its four eligible transfers", () => {
+    const { season, event } = startQualifyingSeason();
+
+    completeQualifying(season, event);
+    season.createHeatLineups();
+
+    const heat = event.heatLineups[0];
+
+    // Simulate the heat finishing in its starting-lineup order.
+    const finishers = heat.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    const results = season.recordHeatResults(1, finishers);
+
+    assert.equal(results.length, heat.entries.length);
+
+    assert.deepEqual(
+        results
+            .filter((result) => result.transferPosition !== null)
+            .map((result) => result.carId),
+        heat.entries.slice(0, 4).map((entry) => entry.carId)
+    );
+
+    assert.deepEqual(
+        event.heatResults[0].results,
+        results
+    );
+});
+
+test("an out-for-event heat finisher cannot transfer directly or enter the B-main", () => {
+    const { season, event } = startQualifyingSeason();
+
+    completeQualifying(season, event);
+    season.createHeatLineups();
+
+    const heat = event.heatLineups[0];
+
+    // Put an out-for-event car in second place. The next eligible
+    // finisher should inherit its transfer spot.
+    const finishers = heat.entries.map((entry, index) => ({
+        carId: entry.carId,
+        statusAtFinish: index === 1 ? "out-for-event" : "running"
+    }));
+
+    const results = season.recordHeatResults(1, finishers);
+
+    assert.equal(results[1].eligibleToTransfer, false);
+    assert.equal(results[1].transferPosition, null);
+    assert.equal(results[4].transferPosition, 4);
+
+    // The B-main lineup should contain eligible non-transfers from
+    // all four heats, not cars that are out for the event.
+    for (let heatNumber = 2; heatNumber <= 4; heatNumber++) {
+        const otherHeat = event.heatLineups[heatNumber - 1];
+
+        season.recordHeatResults(
+            heatNumber,
+            otherHeat.entries.map((entry) => ({
+                carId: entry.carId,
+                statusAtFinish: "running"
+            }))
+        );
+    }
+
+    const bMain = season.createBMainLineup();
+
+    const bMainCarIds = bMain.entries.map((entry) => entry.carId);
+
+    assert.equal(bMainCarIds.includes(finishers[1].carId), false);
+    assert.equal(bMainCarIds.includes(finishers[4].carId), false);
+});
+
+function prepareSeasonWithHeatResults() {
+    const { season, event } = startQualifyingSeason();
+
+    completeQualifying(season, event);
+    season.createHeatLineups();
+
+    for (let heatNumber = 1; heatNumber <= 4; heatNumber++) {
+        const heat = event.heatLineups[heatNumber - 1];
+
+        season.recordHeatResults(
+            heatNumber,
+            heat.entries.map((entry) => ({
+                carId: entry.carId,
+                statusAtFinish: "running"
+            }))
+        );
+    }
+
+    return { season, event };
+}
+
+test("the B-main results award up to four transfer spots", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    const finishers = bMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    const results = season.recordBMainResults(finishers);
+
+    assert.equal(
+        results.filter((result) => result.transferPosition !== null).length,
+        4
+    );
+
+    assert.equal(event.phase, "a-main");
+    assert.deepEqual(event.bMainResults, results);
+});
+
+test("the A-main combines eligible heat and B-main transfers", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    season.createBMainLineup();
+
+    const bMainFinishers = event.bMainLineup.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    season.recordBMainResults(bMainFinishers);
+
+    const aMain = season.createAMainLineup();
+
+    assert.equal(aMain.entries.length, 20);
+
+    const aMainCarIds = aMain.entries.map((entry) => entry.carId);
+
+    assert.equal(new Set(aMainCarIds).size, 20);
+
+    // The A-main should include the sixteen direct heat transfers.
+    const heatTransfers = event.heatResults.flatMap((heat) =>
+        heat.results
+            .filter((result) => result.transferPosition !== null)
+            .map((result) => result.carId)
+    );
+
+    for (const carId of heatTransfers) {
+        assert.ok(aMainCarIds.includes(carId));
+    }
+});
+
+test("an out-for-event B-main finisher cannot transfer to the A-main", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    const finishers = bMain.entries.map((entry, index) => ({
+        carId: entry.carId,
+        statusAtFinish: index === 0 ? "out-for-event" : "running"
+    }));
+
+    const results = season.recordBMainResults(finishers);
+
+    assert.equal(results[0].eligibleToTransfer, false);
+    assert.equal(results[0].transferPosition, null);
+
+    const aMain = season.createAMainLineup();
+
+    const aMainCarIds = aMain.entries.map((entry) => entry.carId);
+
+    assert.equal(aMainCarIds.includes(finishers[0].carId), false);
+    assert.equal(aMain.entries.length, 20);
+});
+
+
+test("B-main results cannot be recorded before the B-main starts", () => {
+    const { season } = startQualifyingSeason();
+
+    assert.throws(
+        () => season.recordBMainResults([]),
+        /B-main results can only be recorded during the B-main/
+    );
+});
+
+test("B-main results cannot be recorded twice", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+    const finishers = bMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    season.recordBMainResults(finishers);
+
+    assert.throws(
+        () => season.recordBMainResults(finishers),
+        /only be recorded during the B-main/
+    );
+});
+
+test("the A-main lineup cannot be created before B-main results", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    season.createBMainLineup();
+
+    assert.throws(
+        () => season.createAMainLineup(),
+        /A-main lineup can only be created after B-main results/
+    );
+});
+
+test("the A-main lineup contains no duplicate cars", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+    const carIds = aMain.entries.map((entry) => entry.carId);
+
+    assert.equal(carIds.length, new Set(carIds).size);
+    assert.equal(aMain.entries.length, 20);
+    assert.equal(event.aMainLineup, aMain);
 });
