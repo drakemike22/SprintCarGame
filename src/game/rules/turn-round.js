@@ -39,8 +39,31 @@ function validateRound(round) {
     }
 }
 
-function createTurnRound(raceCars) {
-    const order = getTurnOrder(raceCars).map((raceCar) => raceCar.carId);
+function createTurnRound(raceCars, explicitOrder = null) {
+    // Normal rounds calculate order from laps, track sections,
+    // and lanes. A yellow restart can supply its own lineup.
+    const order = explicitOrder === null
+        ? getTurnOrder(raceCars).map((raceCar) => raceCar.carId)
+        : [...explicitOrder];
+
+    if (!Array.isArray(order)) {
+        throw new Error("Turn order must be provided as an array.");
+    }
+
+    // An explicit order must contain every running car exactly once.
+    const runningCarIds = raceCars
+        .filter((raceCar) => raceCar.status === "running")
+        .map((raceCar) => raceCar.carId);
+
+    if (
+        order.length !== runningCarIds.length ||
+        new Set(order).size !== order.length ||
+        !runningCarIds.every((carId) => order.includes(carId))
+    ) {
+        throw new Error(
+            "Explicit turn order must include every running car exactly once."
+        );
+    }
 
     return {
         order,

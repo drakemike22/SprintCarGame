@@ -910,3 +910,48 @@ applyCompletedRaceTurn(race, "wreck-car", turn);
         { section: 8, lane: 2 }
     );
 });
+
+
+test("preserves restart order when the lineup crosses section zero", () => {
+    const cars = [
+        makeCar("leader", 1),
+        makeCar("second", 20),
+        makeCar("third", 18),
+        makeCar("fourth", 16)
+    ];
+
+    // The leader has completed one more lap than the other cars.
+    cars[0].completedLaps = 2;
+    cars[1].completedLaps = 1;
+    cars[2].completedLaps = 1;
+    cars[3].completedLaps = 1;
+
+    const race = createRaceState(cars);
+
+    stopRaceRoundForYellow(race);
+    restartRaceAfterYellow(race);
+
+    assert.deepEqual(
+        race.raceCars
+            .filter(car => race.round.order.includes(car.carId))
+            .map(car => ({
+                carId: car.carId,
+                position: car.position
+            }))
+            .sort((a, b) =>
+                race.round.order.indexOf(a.carId) -
+                race.round.order.indexOf(b.carId)
+            ),
+        [
+            { carId: "leader", position: { section: 1, lane: 2 } },
+            { carId: "second", position: { section: 0, lane: 2 } },
+            { carId: "third", position: { section: 29, lane: 2 } },
+            { carId: "fourth", position: { section: 28, lane: 2 } }
+        ]
+    );
+
+    assert.deepEqual(
+        race.round.order,
+        ["leader", "second", "third", "fourth"]
+    );
+});

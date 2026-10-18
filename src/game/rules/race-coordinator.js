@@ -188,7 +188,8 @@ function restartRaceAfterYellow(raceState) {
     }
 
     // Build a fresh round from the new positions and lineup.
-    raceState.round = createTurnRound(raceState.raceCars);
+    // Preserve the restart lineup instead of sorting cars by section again.
+    raceState.round = createTurnRound(raceState.raceCars, orderedCarIds);
     raceState.yellowFlag = false;
     raceState.status = raceState.round.status === ROUND_STATUS.COMPLETED
         ? "round-complete"
