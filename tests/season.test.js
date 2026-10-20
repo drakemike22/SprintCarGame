@@ -930,3 +930,147 @@ test("the A-main lineup contains no duplicate cars", () => {
     assert.equal(aMain.entries.length, 20);
     assert.equal(event.aMainLineup, aMain);
 });
+
+
+test("A-main results record every car in official finishing order", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    // Reverse the lineup to make the recorded finishing order
+    // different from the starting order.
+    const finishers = [...aMain.entries]
+        .reverse()
+        .map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }));
+
+    const results = season.recordAMainResults(finishers);
+
+    assert.equal(results.length, 20);
+    assert.equal(event.aMainResults, results);
+
+    assert.deepEqual(
+        results.map((result) => result.carId),
+        finishers.map((finisher) => finisher.carId)
+    );
+
+    assert.deepEqual(
+        results.map((result) => result.finishingPosition),
+        Array.from({ length: 20 }, (_, index) => index + 1)
+    );
+});
+
+test("A-main results reject a missing car", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    const finishers = aMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    assert.throws(
+        () => season.recordAMainResults(finishers.slice(1)),
+        /every car in the lineup/
+    );
+
+    assert.equal(event.aMainResults, undefined);
+});
+
+test("A-main results reject a car that is not in the lineup", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    const finishers = aMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    finishers[0] = {
+        carId: "not-in-the-a-main",
+        statusAtFinish: "running"
+    };
+
+    assert.throws(
+        () => season.recordAMainResults(finishers),
+        /not in the A-main lineup/
+    );
+});
+
+test("A-main results cannot be recorded twice", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    const finishers = aMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+
+    season.recordAMainResults(finishers);
+
+    assert.throws(
+        () => season.recordAMainResults(finishers),
+        /already been recorded/
+    );
+});
+
+test("A-main results cannot be recorded before the lineup exists", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    season.createBMainLineup();
+
+    const bMain = season.currentEvent.bMainLineup;
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    assert.throws(
+        () => season.recordAMainResults([]),
+        /lineup must be created/
+    );
+});

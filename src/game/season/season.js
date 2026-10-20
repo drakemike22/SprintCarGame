@@ -668,6 +668,88 @@ class Season {
         return this.currentEvent.aMainLineup;
     }
 
+    /**
+     * Records the official A-main finishing order.
+     *
+     * Every car in the A-main lineup must appear exactly once.
+     * The existing race-results rules validate each car's status
+     * and create the official finishing-position records.
+     *
+     * This method records results only. Championship points and
+     * event completion will be handled separately.
+     */
+    recordAMainResults(finishers) {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        if (this.currentEvent.phase !== "a-main") {
+            throw new Error(
+                "A-main results can only be recorded during the A-main."
+            );
+        }
+
+        if (!this.currentEvent.aMainLineup) {
+            throw new Error(
+                "The A-main lineup must be created before recording results."
+            );
+        }
+
+        if (this.currentEvent.aMainResults) {
+            throw new Error("A-main results have already been recorded.");
+        }
+
+        if (!Array.isArray(finishers)) {
+            throw new Error("Finishers must be provided as an array.");
+        }
+
+        const expectedCarIds = new Set(
+            this.currentEvent.aMainLineup.entries.map(
+                (entry) => entry.carId
+            )
+        );
+
+        const actualCarIds = new Set();
+
+        for (const finisher of finishers) {
+            if (
+                !finisher ||
+                typeof finisher.carId !== "string" ||
+                finisher.carId.trim() === ""
+            ) {
+                throw new Error(
+                    "Every A-main finisher must have a valid car ID."
+                );
+            }
+
+            if (actualCarIds.has(finisher.carId)) {
+                throw new Error(
+                    "A-main finisher car IDs must be unique."
+                );
+            }
+
+            actualCarIds.add(finisher.carId);
+
+            if (!expectedCarIds.has(finisher.carId)) {
+                throw new Error(
+                    `Car "${finisher.carId}" is not in the A-main lineup.`
+                );
+            }
+        }
+
+        if (actualCarIds.size !== expectedCarIds.size) {
+            throw new Error(
+                "A-main results must include every car in the lineup."
+            );
+        }
+
+        const results = createRaceResults(finishers);
+
+        this.currentEvent.aMainResults = results;
+
+        return results;
+    }
+
 
 }
 module.exports = { Season };
