@@ -1,3 +1,4 @@
+
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -6,80 +7,96 @@ const {
     chooseMovementTurnPosition
 } = require("../src/game/track/movement-turn");
 
-test("a turn automatically moves until its movement runs out", () => {
+/*
+ * Helper: finish a movement turn by choosing one space at a time.
+ *
+ * This represents a player making each movement decision. For tests
+ * that do not care about strategy, it selects the first legal option.
+ * Production gameplay will let the actual player make these choices.
+ */
+function finishMovementTurn(turn) {
+    let currentTurn = turn;
+
+    while (currentTurn.status === "waiting-for-choice") {
+        assert.ok(
+            currentTurn.legalNextPositions.length > 0,
+            "A turn waiting for a choice must offer a legal position."
+        );
+
+        // Prefer staying in the current lane when possible.
+        // This avoids spending lane changes unnecessarily in tests
+        // that are checking movement accounting rather than strategy.
+        const nextPosition =
+            currentTurn.legalNextPositions.find(
+                position => position.lane === currentTurn.position.lane
+            ) || currentTurn.legalNextPositions[0];
+
+        currentTurn = chooseMovementTurnPosition(
+            currentTurn,
+            nextPosition
+        );
+    }
+
+    return currentTurn;
+}
+
+test("movement waits for the player to choose each space", () => {
     const turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
         movementRemaining: 3,
-        laneChangesRemaining: 2
-    });
-
-    assert.equal(turn.status, "complete");
-    assert.deepEqual(turn.position, { section: 28, lane: 1 });
-    assert.equal(turn.movementRemaining, 0);
-    assert.deepEqual(turn.history, [
-        { section: 25, lane: 1 },
-        { section: 26, lane: 1 },
-        { section: 27, lane: 1 },
-        { section: 28, lane: 1 }
-    ]);
-});
-
-test("a turn pauses when a blocked lane offers multiple choices", () => {
-    const turn = startMovementTurn({
-        currentPosition: { section: 25, lane: 1 },
-        occupiedPositions: [
-            { section: 26, lane: 1 }
-        ],
-        movementRemaining: 4,
         laneChangesRemaining: 2
     });
 
     assert.equal(turn.status, "waiting-for-choice");
     assert.deepEqual(turn.position, { section: 25, lane: 1 });
-    assert.equal(turn.movementRemaining, 4);
-
+    assert.equal(turn.movementRemaining, 3);
     assert.deepEqual(turn.legalNextPositions, [
         { section: 26, lane: 0 },
+        { section: 26, lane: 1 },
         { section: 26, lane: 2 },
         { section: 26, lane: 3 }
     ]);
 });
 
-test("choosing a lane continues the turn until movement runs out", () => {
-    const turn = startMovementTurn({
+test("each choice advances one section and spends movement", () => {
+    let turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
-        occupiedPositions: [
-            { section: 26, lane: 1 }
-        ],
-        movementRemaining: 4,
+        movementRemaining: 3,
         laneChangesRemaining: 2
     });
 
-    const result = chooseMovementTurnPosition(
+    turn = chooseMovementTurnPosition(
         turn,
         { section: 26, lane: 2 }
     );
 
-    assert.equal(result.status, "complete");
-    assert.deepEqual(result.position, { section: 29, lane: 2 });
-    assert.equal(result.movementRemaining, 0);
-    assert.equal(result.laneChangesRemaining, 1);
+    assert.equal(turn.status, "waiting-for-choice");
+    assert.deepEqual(turn.position, { section: 26, lane: 2 });
+    assert.equal(turn.movementRemaining, 2);
+    assert.equal(turn.laneChangesRemaining, 1);
 
-    assert.deepEqual(result.history, [
+    turn = finishMovementTurn(turn);
+
+    assert.equal(turn.status, "complete");
+    assert.deepEqual(turn.position, { section: 28, lane: 2 });
+    assert.equal(turn.movementRemaining, 0);
+    assert.equal(turn.laneChangesRemaining, 1);
+    assert.deepEqual(turn.history, [
         { section: 25, lane: 1 },
         { section: 26, lane: 2 },
         { section: 27, lane: 2 },
-        { section: 28, lane: 2 },
-        { section: 29, lane: 2 }
+        { section: 28, lane: 2 }
     ]);
 });
 
-test("the turn can move through the start-finish wraparound", () => {
-    const turn = startMovementTurn({
+test("movement can cross the start-finish wraparound", () => {
+    let turn = startMovementTurn({
         currentPosition: { section: 28, lane: 1 },
         movementRemaining: 3,
         laneChangesRemaining: 0
     });
+
+    turn = finishMovementTurn(turn);
 
     assert.equal(turn.status, "complete");
     assert.deepEqual(turn.position, { section: 1, lane: 1 });
@@ -91,22 +108,27 @@ test("the turn can move through the start-finish wraparound", () => {
     ]);
 });
 
-test("a blocked car with no lane changes remaining gets stuck", () => {
+test("a blocked car forfeits its remaining movement", () => {
+    const occupiedPositions = [
+        { section: 26, lane: 1 },
+        { section: 26, lane: 0 },
+        { section: 26, lane: 2 },
+        { section: 26, lane: 3 }
+    ];
+
     const turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
-        occupiedPositions: [
-            { section: 26, lane: 1 }
-        ],
+        occupiedPositions,
         movementRemaining: 3,
         laneChangesRemaining: 0
     });
 
     assert.equal(turn.status, "stuck");
     assert.deepEqual(turn.position, { section: 25, lane: 1 });
-    assert.equal(turn.movementRemaining, 3);
+    assert.equal(turn.movementRemaining, 0);
 });
 
-test("a turn with zero movement finishes without moving", () => {
+test("zero movement finishes without moving", () => {
     const turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
         movementRemaining: 0,
@@ -120,7 +142,7 @@ test("a turn with zero movement finishes without moving", () => {
     ]);
 });
 
-test("a player cannot choose a lane that is not offered", () => {
+test("a player cannot choose a position that is not offered", () => {
     const turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
         occupiedPositions: [
@@ -135,11 +157,11 @@ test("a player cannot choose a lane that is not offered", () => {
             turn,
             { section: 27, lane: 2 }
         ),
-        /not a legal option/
+        /not legal|not a legal option/i
     );
 });
 
-test("a turn waiting for a choice cannot be advanced without a choice", () => {
+test("a blocked lane cannot be selected", () => {
     const turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
         occupiedPositions: [
@@ -154,46 +176,48 @@ test("a turn waiting for a choice cannot be advanced without a choice", () => {
             turn,
             { section: 26, lane: 1 }
         ),
-        /not a legal option/
+        /not legal|not a legal option/i
     );
 });
 
-test("a finished turn cannot accept another lane choice", () => {
+test("a completed turn cannot accept another choice", () => {
     const turn = startMovementTurn({
         currentPosition: { section: 25, lane: 1 },
         movementRemaining: 1,
         laneChangesRemaining: 2
     });
 
-    assert.equal(turn.status, "complete");
+    const completedTurn = finishMovementTurn(turn);
+
+    assert.equal(completedTurn.status, "complete");
 
     assert.throws(
         () => chooseMovementTurnPosition(
-            turn,
+            completedTurn,
             { section: 26, lane: 1 }
         ),
-        /not waiting for a choice/
+        /not waiting for a choice/i
     );
 });
 
-test("the turn rejects negative movement", () => {
+test("negative movement is rejected", () => {
     assert.throws(
         () => startMovementTurn({
             currentPosition: { section: 25, lane: 1 },
             movementRemaining: -1,
             laneChangesRemaining: 2
         }),
-        /Movement remaining/
+        /movement allowance/i
     );
 });
 
-test("the turn rejects invalid starting positions", () => {
+test("invalid starting positions are rejected", () => {
     assert.throws(
         () => startMovementTurn({
             currentPosition: { section: 30, lane: 1 },
             movementRemaining: 3,
             laneChangesRemaining: 2
         }),
-        /starting position is invalid/
+        /position is invalid/i
     );
 });
