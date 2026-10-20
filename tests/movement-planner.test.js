@@ -281,3 +281,100 @@ test("accepts a genuinely blocked route that forfeits remaining movement", () =>
     assert.equal(result.valid, true);
     assert.equal(result.reason, null);
 });
+
+
+test("rejects malformed current occupied positions without throwing", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completedPlan = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    let result;
+
+    assert.doesNotThrow(() => {
+        result = validateMovementPlan(completedPlan, [null]);
+    });
+
+    assert.equal(result.valid, false);
+});
+
+test("rejects an invalid final position even when history matches it", () => {
+    const plan = makePlan({ movementAllowance: 0 });
+
+    const invalidPosition = { section: 99, lane: 0 };
+
+    const tamperedPlan = {
+        ...plan,
+        position: invalidPosition,
+        history: [invalidPosition]
+    };
+
+    const result = validateMovementPlan(tamperedPlan, []);
+
+    assert.equal(result.valid, false);
+});
+
+test("rejects a malformed step without throwing", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completedPlan = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    const tamperedPlan = {
+        ...completedPlan,
+        steps: [
+            {
+                ...completedPlan.steps[0],
+                from: null
+            }
+        ]
+    };
+
+    let result;
+
+    assert.doesNotThrow(() => {
+        result = validateMovementPlan(tamperedPlan, []);
+    });
+
+    assert.equal(result.valid, false);
+});
+
+test("rejects an invalid position in route history", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completedPlan = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    const tamperedPlan = {
+        ...completedPlan,
+        history: [
+            { section: 99, lane: 1 },
+            completedPlan.history[1]
+        ],
+        steps: [
+            {
+                ...completedPlan.steps[0],
+                from: { section: 99, lane: 1 }
+            }
+        ]
+    };
+
+    const result = validateMovementPlan(tamperedPlan, []);
+
+    assert.equal(result.valid, false);
+});

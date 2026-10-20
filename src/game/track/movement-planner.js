@@ -296,100 +296,54 @@ function undoMovementPlanPosition(plan) {
  */
 
 function validateMovementPlan(plan, currentOccupiedPositions = []) {
+    const invalid = reason => ({
+        valid: false,
+        reason
+    });
+
     if (!plan || typeof plan !== "object") {
-        return {
-            valid: false,
-            reason: "A movement plan is required."
-        };
+        return invalid("A movement plan is required.");
     }
 
-    // Check the occupied spaces first. Even an unfinished route can
-    // become stale if another car's position changes.
     if (!Array.isArray(currentOccupiedPositions)) {
-        return {
-            valid: false,
-            reason: "Current occupied spaces must be an array."
-        };
+        return invalid("Current occupied spaces must be an array.");
+    }
+
+    // Reject malformed positions before comparing or inspecting them.
+    if (
+        !Array.isArray(plan.occupiedPositions) ||
+        !plan.occupiedPositions.every(isValidPosition) ||
+        !currentOccupiedPositions.every(isValidPosition)
+    ) {
+        return invalid("Occupied spaces contain an invalid position.");
     }
 
     if (
-        !Array.isArray(plan.occupiedPositions) ||
         !samePositionSet(
             plan.occupiedPositions,
             currentOccupiedPositions
         )
     ) {
-        return {
-            valid: false,
-            reason: "Occupied spaces changed; the route is stale."
-        };
+        return invalid("Occupied spaces changed; the route is stale.");
     }
 
-    // Only a complete route (or a route stopped by blocked spaces)
-    // can be confirmed.
     if (plan.status !== "complete" && plan.status !== "blocked") {
-        return {
-            valid: false,
-            reason: "The route must be complete before it can be confirmed."
-        };
+        return invalid(
+            "The route must be complete before it can be confirmed."
+        );
     }
 
     if (
+        !isValidPosition(plan.position) ||
         !Array.isArray(plan.history) ||
+        plan.history.length === 0 ||
+        !plan.history.every(isValidPosition) ||
         !Array.isArray(plan.steps) ||
         plan.history.length !== plan.steps.length + 1
     ) {
-        return {
-            valid: false,
-            reason: "The route history is inconsistent."
-        };
+        return invalid("The route history or final position is invalid.");
     }
 
-    let movementSpent = 0;
-    let laneChangesSpent = 0;
-
-    for (let index = 0; index < plan.steps.length; index += 1) {
-        const step = plan.steps[index];
-        const expectedFrom = plan.history[index];
-        const expectedTo = plan.history[index + 1];
-
-        if (
-            !positionsEqual(step.from, expectedFrom) ||
-            !positionsEqual(step.to, expectedTo) ||
-            step.to.section !== getNextSection(step.from.section) ||
-            !isValidPosition(step.from) ||
-            !isValidPosition(step.to)
-        ) {
-            return {
-                valid: false,
-                reason: "The route contains an invalid or disconnected step."
-            };
-        }
-
-        const actualLaneCost = Math.abs(step.to.lane - step.from.lane);
-
-        if (
-            step.movementCost !== 1 ||
-            step.laneChangeCost !== actualLaneCost
-        ) {
-            return {
-                valid: false,
-                reason: "The route contains incorrect movement costs."
-            };
-        }
-
-        if (isOccupied(step.to, plan.occupiedPositions)) {
-            return {
-                valid: false,
-                reason: "The route enters an occupied space."
-            };
-        }
-
-        movementSpent += step.movementCost;
-        laneChangesSpent += step.laneChangeCost;
-    }
-    // Validate the allowances and the amount of movement spent.
-    // Blocked routes are allowed to forfeit unused movement.
     if (
         !Number.isInteger(plan.movementAllowance) ||
         plan.movementAllowance < 0 ||
@@ -398,43 +352,109 @@ function validateMovementPlan(plan, currentOccupiedPositions = []) {
         !Number.isInteger(plan.movementRemaining) ||
         plan.movementRemaining < 0 ||
         !Number.isInteger(plan.laneChangesRemaining) ||
-        plan.laneChangesRemaining < 0 ||
+        plan.laneChangesRemaining < 0
+    ) {
+        return invalid("The route has invalid movement allowances.");
+    }
+
+    let movementSpent = 0;
+    let laneChangesSpent = 0;
+    let laneChangesLeft = plan.laneChangeAllowance;
+
+    for (let index = 0; index < plan.steps.length; index += 1) {
+        const step = plan.steps[index];
+        const expectedFrom = plan.history[index];
+        const expectedTo = plan.history[index + 1];
+
+        // Check step shape before reading its properties.
+        if (
+            !step ||
+            typeof step !== "object" ||
+            !isValidPosition(step.from) ||
+            !isValidPosition(step.to)
+        ) {
+            return invalid("The route contains a malformed step.");
+        }
+
+        if (
+            !positionsEqual(step.from, expectedFrom) ||
+            !positionsEqual(step.to, expectedTo) ||
+            step.to.section !== getNextSection(step.from.section)
+        ) {
+            return invalid(
+                "The route contains an invalid or disconnected step."
+            );
+        }
+
+        const actualLaneCost = Math.abs(
+            step.to.lane - step.from.lane
+        );
+
+        if (
+            step.movementCost !== 1 ||
+            step.laneChangeCost !== actualLaneCost
+        ) {
+            return invalid("The route contains incorrect movement costs.");
+        }
+
+        if (actualLaneCost > laneChangesLeft) {
+            return invalid(
+                "A route step exceeds the remaining lane-change allowance."
+            );
+        }
+
+        if (isOccupied(step.to, plan.occupiedPositions)) {
+            return invalid("The route enters an occupied space.");
+        }
+
+        movementSpent += step.movementCost;
+        laneChangesSpent += step.laneChangeCost;
+        laneChangesLeft -= actualLaneCost;
+    }
+
+    if (
         movementSpent > plan.movementAllowance ||
         laneChangesSpent > plan.laneChangeAllowance ||
+        (
+            plan.status === "complete" &&
+            plan.movementRemaining !==
+                plan.movementAllowance - movementSpent
+        ) ||
         plan.laneChangesRemaining !==
             plan.laneChangeAllowance - laneChangesSpent
     ) {
-        return {
-            valid: false,
-            reason: "The route exceeds or misreports its movement allowances."
-        };
+        return invalid(
+            "The route exceeds or misreports its movement allowances."
+        );
     }
 
-    // A completed route must spend its entire movement allowance.
     if (
-        plan.status === "complete" &&
-        (
-            plan.movementRemaining !== 0 ||
-            movementSpent !== plan.movementAllowance
+        !positionsEqual(
+            plan.position,
+            plan.history[plan.history.length - 1]
         )
     ) {
-        return {
-            valid: false,
-            reason: "A completed route must use all available movement."
-        };
+        return invalid(
+            "The planned final position does not match its history."
+        );
     }
 
-    // A blocked route forfeits unused movement, but only if no
-    // legal next space is actually available.
-    if (plan.status === "blocked") {
+    if (plan.status === "complete") {
         if (
             plan.movementRemaining !== 0 ||
-            !isValidPosition(plan.position)
+            movementSpent !== plan.movementAllowance
         ) {
-            return {
-                valid: false,
-                reason: "The blocked route has an invalid final state."
-            };
+            return invalid(
+                "A completed route must use all available movement."
+            );
+        }
+    }
+
+    if (plan.status === "blocked") {
+        if (plan.movementRemaining !== 0) {
+            return invalid(
+                "A blocked route must forfeit its remaining movement."
+            );
         }
 
         const availableNextPositions = getLegalPlannerPositions(
@@ -444,23 +464,10 @@ function validateMovementPlan(plan, currentOccupiedPositions = []) {
         );
 
         if (availableNextPositions.length > 0) {
-            return {
-                valid: false,
-                reason: "The route is marked blocked despite legal next spaces."
-            };
+            return invalid(
+                "The route is marked blocked despite legal next spaces."
+            );
         }
-    }
-
-    if (
-        !positionsEqual(
-            plan.position,
-            plan.history[plan.history.length - 1]
-        )
-    ) {
-        return {
-            valid: false,
-            reason: "The planned final position does not match its history."
-        };
     }
 
     return {
@@ -468,7 +475,6 @@ function validateMovementPlan(plan, currentOccupiedPositions = []) {
         reason: null
     };
 }
-
 
 module.exports = {
     startMovementPlan,
