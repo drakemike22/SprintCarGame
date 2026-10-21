@@ -5,9 +5,8 @@
  * Finishing position records the order in which cars finish.
  * Transfer eligibility is calculated separately.
  *
- * An out-for-event result on the final crossing removes a car
- * from transfer eligibility. Other statuses do not change its
- * finishing position or transfer eligibility on that crossing.
+ * Optional progress fields preserve the information needed to rank
+ * cars eliminated before the A-main. Missing progress remains null.
  */
 
 const test = require("node:test");
@@ -63,17 +62,14 @@ test("an out-for-event car loses its transfer spot to the next eligible finisher
 
     const results = createRaceResults(finishers);
 
-    // Finishing positions remain the actual crossing order.
     assert.deepEqual(
         results.map((result) => result.finishingPosition),
         [1, 2, 3, 4, 5, 6]
     );
 
-    // Car 3 keeps third place but cannot transfer.
     assert.equal(results[2].eligibleToTransfer, false);
     assert.equal(results[2].transferPosition, null);
 
-    // Car 6 inherits the fourth transfer position.
     assert.deepEqual(
         results.map((result) => result.transferPosition),
         [1, 2, null, 3, 4, null]
@@ -115,4 +111,65 @@ test("race results reject duplicate car IDs", () => {
         ]),
         /unique/
     );
+});
+
+test("race results preserve supplied lap and track-distance progress", () => {
+    const results = createRaceResults([
+        {
+            carId: "car-1",
+            statusAtFinish: "running",
+            lapsCompleted: 2,
+            trackDistance: 17
+        },
+        {
+            carId: "car-2",
+            statusAtFinish: "out-for-race",
+            lapsCompleted: 1,
+            trackDistance: 29
+        }
+    ]);
+
+    assert.equal(results[0].lapsCompleted, 2);
+    assert.equal(results[0].trackDistance, 17);
+    assert.equal(results[1].lapsCompleted, 1);
+    assert.equal(results[1].trackDistance, 29);
+});
+
+test("race results use null when optional progress was not supplied", () => {
+    const results = createRaceResults([
+        { carId: "car-1", statusAtFinish: "running" }
+    ]);
+
+    assert.equal(results[0].lapsCompleted, null);
+    assert.equal(results[0].trackDistance, null);
+});
+
+test("race results reject invalid lap counts", () => {
+    for (const lapsCompleted of [-1, 1.5, "2"]) {
+        assert.throws(
+            () => createRaceResults([
+                {
+                    carId: "car-1",
+                    statusAtFinish: "running",
+                    lapsCompleted
+                }
+            ]),
+            /lapsCompleted/
+        );
+    }
+});
+
+test("race results reject invalid track distances", () => {
+    for (const trackDistance of [-1, 2.5, "10"]) {
+        assert.throws(
+            () => createRaceResults([
+                {
+                    carId: "car-1",
+                    statusAtFinish: "running",
+                    trackDistance
+                }
+            ]),
+            /trackDistance/
+        );
+    }
 });
