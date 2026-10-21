@@ -25,6 +25,9 @@ const { QualifyingSession } = require("./qualifying-session");
 const {
     createRaceResults
 } = require("../rules/race-results");
+const {
+    scoreEventStandings
+} = require("./scoring");
 class Season {
     constructor({ id, players, cars, eventCount }) {
         // ---------------------------------------------------------
@@ -748,6 +751,121 @@ class Season {
         this.currentEvent.aMainResults = results;
 
         return results;
+    }
+
+    /**
+     * Records the final standings for a completed event and awards
+     * championship points exactly once.
+     *
+     * The caller must provide the final ranking of every drafted car,
+     * including cars eliminated before the A-main.
+     *
+     * This method deliberately does not invent finishing positions
+     * for eliminated cars. The event-results workflow must determine
+     * their official positions before calling this method.
+     */
+    recordEventStandings(finalStandings) {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        // Check this before the phase check because a successful award
+        // changes the phase to "complete".
+        if (
+            this.eventHistory.some(
+                (event) =>
+                    event.eventNumber === this.currentEvent.eventNumber
+            )
+        ) {
+            throw new Error(
+                "Championship points have already been awarded for this event."
+            );
+        }
+
+        if (this.currentEvent.phase !== "a-main") {
+            throw new Error(
+                "Final event standings can only be recorded after the A-main."
+            );
+        }
+
+        if (!this.currentEvent.aMainResults) {
+            throw new Error(
+                "A-main results must be recorded before final event standings."
+            );
+        }
+
+        if (
+            !this.currentEvent.heatResults ||
+            this.currentEvent.heatResults.some(
+                (heat) => heat.results.length === 0
+            )
+        ) {
+            throw new Error(
+                "All heat results must be recorded before final event standings."
+            );
+        }
+
+        if (!this.currentEvent.bMainResults) {
+            throw new Error(
+                "B-main results must be recorded before final event standings."
+            );
+        }
+
+        // The event standings must include every drafted car and no
+        // undrafted cars. A three-player season has 30 drafted cars;
+        // two-player and four-player seasons have 32.
+        const expectedCarIds = new Set(
+            this.draft.picks.map((pick) => pick.carId)
+        );
+
+        if (!Array.isArray(finalStandings)) {
+            throw new Error("Final standings must be an array.");
+        }
+
+        if (finalStandings.length !== expectedCarIds.size) {
+            throw new Error(
+                "Final standings must include every drafted car exactly once."
+            );
+        }
+
+        const suppliedCarIds = new Set(
+            finalStandings.map((standing) => standing?.carId)
+        );
+
+        if (
+            suppliedCarIds.size !== expectedCarIds.size ||
+            [...expectedCarIds].some(
+                (carId) => !suppliedCarIds.has(carId)
+            )
+        ) {
+            throw new Error(
+                "Final standings must include every drafted car exactly once."
+            );
+        }
+
+        // Validate and score the complete results before changing
+        // any championship totals.
+        const scoredStandings = scoreEventStandings(finalStandings);
+
+        // Build a separate history record so the official results
+        // remain available after the event is closed.
+        const historyRecord = {
+            eventNumber: this.currentEvent.eventNumber,
+            standings: scoredStandings.map((standing) => ({
+                ...standing
+            }))
+        };
+
+        // Apply each car's points exactly once.
+        for (const standing of scoredStandings) {
+            this.seasonPoints[standing.carId] += standing.points;
+        }
+
+        this.currentEvent.finalStandings = scoredStandings;
+        this.currentEvent.phase = "complete";
+        this.eventHistory.push(historyRecord);
+
+        return scoredStandings;
     }
 
 

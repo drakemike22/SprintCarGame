@@ -1074,3 +1074,66 @@ test("A-main results cannot be recorded before the lineup exists", () => {
         /lineup must be created/
     );
 });
+
+
+test("final event standings award championship points exactly once", () => {
+    const { season } = startQualifyingSeason(2);
+
+    // Prepare the event through its existing race phases.
+    const { season: preparedSeason } = prepareSeasonWithHeatResults();
+
+    // Use the prepared season, which has completed qualifying and heats.
+    const bMain = preparedSeason.createBMainLineup();
+
+    preparedSeason.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = preparedSeason.createAMainLineup();
+
+    preparedSeason.recordAMainResults(
+        aMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    // Build a complete 32-car ranking from the drafted cars.
+    const draftedCarIds = preparedSeason.draft.picks.map(
+        (pick) => pick.carId
+    );
+
+    const standings = draftedCarIds.map((carId, index) => ({
+        carId,
+        finishingPosition: index + 1,
+        statusAtFinish: "running"
+    }));
+
+    const scored = preparedSeason.recordEventStandings(standings);
+
+    assert.equal(scored.length, 32);
+    assert.equal(scored[0].points, 75);
+    assert.equal(scored[1].points, 70);
+    assert.equal(scored[31].points, 10);
+    assert.equal(preparedSeason.currentEvent.phase, "complete");
+    assert.equal(preparedSeason.eventHistory.length, 1);
+
+    const pointsAfterFirstAward = { ...preparedSeason.seasonPoints };
+
+    assert.throws(
+        () => preparedSeason.recordEventStandings(standings),
+        /complete|already been awarded/
+    );
+
+    assert.deepEqual(
+        preparedSeason.seasonPoints,
+        pointsAfterFirstAward
+    );
+
+    // Keep the separately created season variable referenced so this
+    // test makes no changes to shared test setup.
+    assert.equal(season.eventHistory.length, 0);
+});
