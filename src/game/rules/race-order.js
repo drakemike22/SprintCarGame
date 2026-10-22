@@ -13,6 +13,11 @@
  * Lane 0 is the inside lane.
  * Lane 3 is the outside lane.
  *
+ * Every race car must have a unique ID.
+ * Running cars must occupy unique track positions.
+ * Cars that are out of the race or event do not take turns
+ * and do not occupy spaces for movement purposes.
+ *
  * This function does not mutate the supplied race cars.
  */
 
@@ -23,8 +28,11 @@ function getTurnOrder(raceCars) {
         throw new Error("Race cars must be provided as an array.");
     }
 
-    // Only running cars are eligible to take turns.
-    const runningCars = raceCars.filter((raceCar) => {
+    // Validate every record and ensure permanent IDs are unique,
+    // including cars that are no longer running.
+    const seenCarIds = new Set();
+
+    for (const raceCar of raceCars) {
         if (!raceCar || typeof raceCar !== "object") {
             throw new Error("Every race car must be a valid object.");
         }
@@ -36,10 +44,23 @@ function getTurnOrder(raceCars) {
             throw new Error("Every race car must have a valid car ID.");
         }
 
-        return raceCar.status === CAR_STATUSES.RUNNING;
-    });
+        if (seenCarIds.has(raceCar.carId)) {
+            throw new Error(
+                `Duplicate race car ID: ${raceCar.carId}.`
+            );
+        }
+
+        seenCarIds.add(raceCar.carId);
+    }
+
+    // Only running cars are eligible to take turns.
+    const runningCars = raceCars.filter(
+        (raceCar) => raceCar.status === CAR_STATUSES.RUNNING
+    );
 
     // Validate the position and lap information needed for ordering.
+    const occupiedPositions = new Set();
+
     for (const raceCar of runningCars) {
         if (
             !raceCar.position ||
@@ -63,6 +84,18 @@ function getTurnOrder(raceCars) {
                 `Race car ${raceCar.carId} must have a valid lap count.`
             );
         }
+
+        const positionKey =
+            `${raceCar.position.section}-${raceCar.position.lane}`;
+
+        if (occupiedPositions.has(positionKey)) {
+            throw new Error(
+                `Running cars cannot occupy the same track position: ` +
+                `${positionKey}.`
+            );
+        }
+
+        occupiedPositions.add(positionKey);
     }
 
     // Sort a copy so the caller's original array stays unchanged.
@@ -82,8 +115,8 @@ function getTurnOrder(raceCars) {
             return a.position.lane - b.position.lane;
         }
 
-        // A valid race should not have two running cars occupying
-        // the same space. Use car ID as a deterministic final tie-breaker.
+        // Valid running cars cannot tie on both section and lane.
+        // Keep this deterministic fallback for defensive clarity.
         return a.carId.localeCompare(b.carId);
     });
 }

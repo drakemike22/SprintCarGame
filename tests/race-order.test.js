@@ -145,3 +145,86 @@ test("an invalid lap count is rejected", () => {
         /valid lap count/
     );
 });
+
+
+test("duplicate car IDs are rejected", () => {
+    const cars = [
+        makeRaceCar({
+            carId: "duplicate",
+            section: 10,
+            lane: 0
+        }),
+        makeRaceCar({
+            carId: "duplicate",
+            section: 15,
+            lane: 1
+        })
+    ];
+
+    assert.throws(
+        () => getTurnOrder(cars),
+        /Duplicate race car ID/
+    );
+});
+
+test("duplicate IDs are rejected even when one car is out", () => {
+    const cars = [
+        makeRaceCar({
+            carId: "duplicate",
+            section: 10,
+            lane: 0
+        }),
+        makeRaceCar({
+            carId: "duplicate",
+            section: 15,
+            lane: 1,
+            status: CAR_STATUSES.OUT_FOR_RACE
+        })
+    ];
+
+    assert.throws(
+        () => getTurnOrder(cars),
+        /Duplicate race car ID/
+    );
+});
+
+test("running cars cannot occupy the same track position", () => {
+    const cars = [
+        makeRaceCar({
+            carId: "car-a",
+            section: 12,
+            lane: 2
+        }),
+        makeRaceCar({
+            carId: "car-b",
+            section: 12,
+            lane: 2
+        })
+    ];
+
+    assert.throws(
+        () => getTurnOrder(cars),
+        /same track position/
+    );
+});
+
+test("cars out of the race do not cause occupied-position errors", () => {
+    const cars = [
+        makeRaceCar({
+            carId: "running",
+            section: 12,
+            lane: 2
+        }),
+        makeRaceCar({
+            carId: "out-for-race",
+            section: 12,
+            lane: 2,
+            status: CAR_STATUSES.OUT_FOR_RACE
+        })
+    ];
+
+    assert.deepEqual(
+        getTurnOrder(cars).map((car) => car.carId),
+        ["running"]
+    );
+});
