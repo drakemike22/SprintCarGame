@@ -18,7 +18,8 @@
 
 const {
     startMovementPlan,
-    chooseMovementPlanPosition
+    chooseMovementPlanPosition,
+    validateMovementPlan
 } = require("./movement-planner");
 
 /*
@@ -50,6 +51,20 @@ function getTurnStatus(plan) {
  * the route before applying race progress.
  */
 function createMovementTurn(plan) {
+    // Validate a route before accepting it as finished.
+    // Incomplete routes are still waiting for player choices.
+    if (plan.status === "complete" || plan.status === "blocked") {
+        const validation = validateMovementPlan(
+            plan,
+            plan.occupiedPositions
+        );
+
+        if (!validation.valid) {
+            throw new Error(
+                `Invalid movement plan: ${validation.reason}`
+            );
+        }
+    }
     return {
         movementPlan: plan,
 

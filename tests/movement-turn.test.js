@@ -221,3 +221,31 @@ test("invalid starting positions are rejected", () => {
         /position is invalid/i
     );
 });
+
+test("rejects a tampered route when a choice completes movement", () => {
+    const turn = startMovementTurn({
+        currentPosition: { section: 25, lane: 1 },
+        movementRemaining: 1,
+        laneChangesRemaining: 2
+    });
+
+    // Corrupt the route history without changing the planner's
+    // current position or its offered legal destinations.
+    const tamperedTurn = {
+        ...turn,
+        movementPlan: {
+            ...turn.movementPlan,
+            history: [
+                { section: 10, lane: 0 }
+            ]
+        }
+    };
+
+    assert.throws(
+        () => chooseMovementTurnPosition(
+            tamperedTurn,
+            { section: 26, lane: 1 }
+        ),
+        /Invalid movement plan/
+    );
+});
