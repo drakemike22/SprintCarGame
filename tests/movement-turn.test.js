@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 
 const {
     startMovementTurn,
-    chooseMovementTurnPosition
+    chooseMovementTurnPosition,
+    undoMovementTurn
 } = require("../src/game/track/movement-turn");
 
 /*
@@ -247,5 +248,117 @@ test("rejects a tampered route when a choice completes movement", () => {
             { section: 26, lane: 1 }
         ),
         /Invalid movement plan/
+    );
+});
+
+
+test("undo restores the previous movement choice", () => {
+    let turn = startMovementTurn({
+        currentPosition: { section: 25, lane: 1 },
+        movementRemaining: 3,
+        laneChangesRemaining: 2
+    });
+
+    turn = {
+        ...turn,
+        dice: { movement: 4, laneChange: 2, event: 5 },
+        movementAllowance: 3
+    };
+
+    turn = chooseMovementTurnPosition(
+        turn,
+        { section: 26, lane: 2 }
+    );
+
+    assert.deepEqual(turn.position, { section: 26, lane: 2 });
+    assert.equal(turn.movementRemaining, 2);
+    assert.equal(turn.laneChangesRemaining, 1);
+
+    const undoneTurn = undoMovementTurn(turn);
+
+    assert.equal(undoneTurn.status, "waiting-for-choice");
+    assert.deepEqual(undoneTurn.position, { section: 25, lane: 1 });
+    assert.equal(undoneTurn.movementRemaining, 3);
+    assert.equal(undoneTurn.laneChangesRemaining, 2);
+    assert.deepEqual(undoneTurn.history, [
+        { section: 25, lane: 1 }
+    ]);
+    assert.deepEqual(undoneTurn.dice, {
+        movement: 4,
+        laneChange: 2,
+        event: 5
+    });
+    assert.equal(undoneTurn.movementAllowance, 3);
+    assert.deepEqual(undoneTurn.legalNextPositions, [
+        { section: 26, lane: 0 },
+        { section: 26, lane: 1 },
+        { section: 26, lane: 2 },
+        { section: 26, lane: 3 }
+    ]);
+
+    // Undo must not mutate the turn that was passed in.
+    assert.deepEqual(turn.position, { section: 26, lane: 2 });
+    assert.equal(turn.movementRemaining, 2);
+});
+
+test("undo returns a completed route to planning", () => {
+    let turn = startMovementTurn({
+        currentPosition: { section: 25, lane: 1 },
+        movementRemaining: 2,
+        laneChangesRemaining: 1
+    });
+
+    turn = finishMovementTurn(turn);
+
+    assert.equal(turn.status, "complete");
+    assert.deepEqual(turn.position, { section: 27, lane: 1 });
+
+    const undoneTurn = undoMovementTurn(turn);
+
+    assert.equal(undoneTurn.status, "waiting-for-choice");
+    assert.deepEqual(undoneTurn.position, { section: 26, lane: 1 });
+    assert.equal(undoneTurn.movementRemaining, 1);
+    assert.deepEqual(undoneTurn.history, [
+        { section: 25, lane: 1 },
+        { section: 26, lane: 1 }
+    ]);
+});
+
+test("undo rejects a turn with no movement choice to undo", () => {
+    const turn = startMovementTurn({
+        currentPosition: { section: 25, lane: 1 },
+        movementRemaining: 3,
+        laneChangesRemaining: 2
+    });
+
+    assert.throws(
+        () => undoMovementTurn(turn),
+        /no route choice available to undo/i
+    );
+});
+
+test("undo rejects a turn after event resolution begins", () => {
+    let turn = startMovementTurn({
+        currentPosition: { section: 25, lane: 1 },
+        movementRemaining: 2,
+        laneChangesRemaining: 1
+    });
+
+    turn = chooseMovementTurnPosition(
+        turn,
+        { section: 26, lane: 1 }
+    );
+
+    const eventTurn = {
+        ...turn,
+        eventResolution: {
+            status: "resolved",
+            result: { type: "safe" }
+        }
+    };
+
+    assert.throws(
+        () => undoMovementTurn(eventTurn),
+        /after event resolution begins/i
     );
 });

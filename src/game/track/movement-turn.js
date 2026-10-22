@@ -1,5 +1,4 @@
-
-/*
+﻿/*
  * Movement Turn Adapter
  * ---------------------
  * Connects the full-route movement planner to the existing race-turn
@@ -19,6 +18,7 @@
 const {
     startMovementPlan,
     chooseMovementPlanPosition,
+    undoMovementPlanPosition,
     validateMovementPlan
 } = require("./movement-planner");
 
@@ -150,7 +150,58 @@ function chooseMovementTurnPosition(turn, targetPosition) {
 }
 
 
+/*
+ * Undoes the latest player movement choice.
+ *
+ * The planner restores the previous position and recalculates the
+ * remaining movement and lane-change allowances. This also allows a
+ * completed or blocked route to return to planning.
+ *
+ * Undo is only allowed before event resolution or wheel processing
+ * begins. This prevents movement history from being changed after
+ * the turn has advanced into race-event processing.
+ *
+ * Other turn fields, such as dice and race-car data, are preserved.
+ */
+function undoMovementTurn(turn) {
+    if (!turn || !turn.movementPlan) {
+        throw new Error(
+            "A valid movement turn is required to undo a choice."
+        );
+    }
+
+    if (
+        turn.status !== "waiting-for-choice" &&
+        turn.status !== "complete" &&
+        turn.status !== "stuck"
+    ) {
+        throw new Error(
+            "The movement turn cannot be undone in its current state."
+        );
+    }
+
+    if (
+        turn.eventResolution ||
+        turn.mechanicalWheel ||
+        turn.wreckWheel
+    ) {
+        throw new Error(
+            "Movement cannot be undone after event resolution begins."
+        );
+    }
+
+    const updatedPlan = undoMovementPlanPosition(
+        turn.movementPlan
+    );
+
+    return {
+        ...turn,
+        ...createMovementTurn(updatedPlan)
+    };
+}
+
 module.exports = {
     startMovementTurn,
-    chooseMovementTurnPosition
+    chooseMovementTurnPosition,
+    undoMovementTurn
 };
