@@ -28,7 +28,23 @@ test("updates the final position after a turn", () => {
 
     assert.deepEqual(updated.position, { section: 1, lane: 2 });
 });
+test("rejects a final position that disagrees with movement history", () => {
+    const car = makeRaceCar();
 
+    assert.throws(
+        () => applyRaceProgress(car, {
+            status: "complete",
+            position: { section: 2, lane: 2 },
+            history: [
+                { section: 28, lane: 2 },
+                { section: 29, lane: 2 },
+                { section: 0, lane: 2 },
+                { section: 1, lane: 2 }
+            ]
+        }),
+        /final position must match the movement history/
+    );
+});
 test("adds movement distance and completed laps", () => {
     const car = makeRaceCar();
 

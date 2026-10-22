@@ -27,6 +27,17 @@ function applyRaceProgress(raceCar, turn) {
     ) {
         throw new Error("The turn must have a valid final position.");
     }
+    const finalHistoryPosition = turn.history?.[turn.history.length - 1];
+
+    if (
+        !finalHistoryPosition ||
+        finalHistoryPosition.section !== turn.position.section ||
+        finalHistoryPosition.lane !== turn.position.lane
+    ) {
+        throw new Error(
+            "The final position must match the movement history."
+        );
+    }
 
     const progress = measureRaceProgress(turn.history);
 
