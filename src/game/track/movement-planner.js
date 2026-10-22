@@ -57,6 +57,22 @@ function samePositionSet(first, second) {
     return firstKeys.every((key, index) => key === secondKeys[index]);
 }
 
+function hasDuplicatePositions(positions) {
+    const seen = new Set();
+
+    for (const position of positions) {
+        const key = positionKey(position);
+
+        if (seen.has(key)) {
+            return true;
+        }
+
+        seen.add(key);
+    }
+
+    return false;
+}
+
 function isOccupied(position, occupiedPositions) {
     return occupiedPositions.some(occupied =>
         positionsEqual(position, occupied)
@@ -175,11 +191,22 @@ function startMovementPlan({
     }
 
     const copiedOccupiedPositions = clonePositions(occupiedPositions);
-
-    for (const position of copiedOccupiedPositions) {
+        for (const position of copiedOccupiedPositions) {
         if (!isValidPosition(position)) {
             throw new Error("An occupied position is invalid.");
         }
+    }
+
+    // Every other car must occupy a unique space.
+    if (hasDuplicatePositions(copiedOccupiedPositions)) {
+        throw new Error("Occupied positions must not contain duplicates.");
+    }
+
+    // Another car cannot already occupy the car's starting space.
+    if (isOccupied(currentPosition, copiedOccupiedPositions)) {
+        throw new Error(
+            "The current starting position cannot be occupied by another car."
+        );
     }
 
     const initialStatus =
@@ -380,6 +407,13 @@ function validateMovementPlan(plan, currentOccupiedPositions = []) {
     ) {
         return invalid("Occupied spaces contain an invalid position.");
     }
+    // Duplicate positions are invalid even if both lists match.
+    if (
+        hasDuplicatePositions(plan.occupiedPositions) ||
+        hasDuplicatePositions(currentOccupiedPositions)
+    ) {
+        return invalid("Occupied spaces must not contain duplicates.");
+    }
 
     if (
         !samePositionSet(
@@ -405,6 +439,17 @@ function validateMovementPlan(plan, currentOccupiedPositions = []) {
         plan.history.length !== plan.steps.length + 1
     ) {
         return invalid("The route history or final position is invalid.");
+    }
+    // The route's first space must not be occupied by another car.
+    if (
+        isOccupied(
+            plan.history[0],
+            plan.occupiedPositions
+        )
+    ) {
+        return invalid(
+            "The route's starting position cannot be occupied by another car."
+        );
     }
 
     if (

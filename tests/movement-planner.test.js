@@ -466,3 +466,100 @@ test("validation rejects a route with a tampered lane-change balance", () => {
     assert.equal(result.valid, false);
     assert.match(result.reason, /allowance|movement/i);
 });
+
+test("start rejects duplicate occupied positions", () => {
+    assert.throws(
+        () => makePlan({
+            occupiedPositions: [
+                { section: 11, lane: 2 },
+                { section: 11, lane: 2 }
+            ]
+        }),
+        /duplicate/i
+    );
+});
+
+test("start rejects a position occupied by another car", () => {
+    assert.throws(
+        () => makePlan({
+            occupiedPositions: [{ ...start }]
+        }),
+        /starting position|current position|occupied/i
+    );
+});
+
+test("validation rejects duplicate saved occupied positions", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completed = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    const tamperedPlan = {
+        ...completed,
+        occupiedPositions: [
+            { section: 15, lane: 0 },
+            { section: 15, lane: 0 }
+        ]
+    };
+
+    const result = validateMovementPlan(
+        tamperedPlan,
+        [
+            { section: 15, lane: 0 },
+            { section: 15, lane: 0 }
+        ]
+    );
+
+    assert.equal(result.valid, false);
+    assert.match(result.reason, /duplicate/i);
+});
+
+test("validation rejects duplicate current occupied positions", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completed = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    const result = validateMovementPlan(completed, [
+        { section: 15, lane: 0 },
+        { section: 15, lane: 0 }
+    ]);
+
+    assert.equal(result.valid, false);
+    assert.match(result.reason, /duplicate|changed|stale/i);
+});
+
+test("validation rejects a route whose starting space is occupied", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completed = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    const tamperedPlan = {
+        ...completed,
+        occupiedPositions: [{ ...start }]
+    };
+
+    const result = validateMovementPlan(
+        tamperedPlan,
+        [{ ...start }]
+    );
+
+    assert.equal(result.valid, false);
+    assert.match(result.reason, /starting position|current position|occupied/i);
+});
