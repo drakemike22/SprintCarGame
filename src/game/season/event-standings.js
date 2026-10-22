@@ -180,18 +180,45 @@ function buildEventStandings({
     requireResults(bMainResults, "B-main results");
     requireResults(aMainResults, "A-main results");
 
+    
+    // The event has exactly four heats, numbered 1 through 4.
+    // Checking only the array length would allow duplicate heat numbers
+    // to silently omit a heat and distort the elimination rankings.
     if (heatResults.length !== 4) {
         throw new Error("Exactly four heat results are required.");
     }
 
+    const heatNumbers = new Set();
+
     for (const heat of heatResults) {
-        if (!heat || !Number.isInteger(heat.heatNumber) ||
-            !Array.isArray(heat.results)) {
+        if (
+            !heat ||
+            !Number.isInteger(heat.heatNumber) ||
+            !Array.isArray(heat.results)
+        ) {
             throw new Error(
                 "Each heat must have a heat number and a results array."
             );
         }
+
+        heatNumbers.add(heat.heatNumber);
     }
+
+    // Four entries are valid only when all four official heat numbers
+    // are present. This rejects duplicates, missing numbers, and
+    // unexpected numbers such as 0 or 5.
+    const expectedHeatNumbers = [1, 2, 3, 4];
+
+    if (
+        !expectedHeatNumbers.every(heatNumber =>
+            heatNumbers.has(heatNumber)
+        )
+    ) {
+        throw new Error(
+            "Heat results must contain four distinct heats numbered 1 through 4."
+        );
+    }
+
 
     const draftedIds = new Set(draftedCarIds);
     const qualifyingOrder = buildQualifyingOrder(

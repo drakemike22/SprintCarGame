@@ -217,3 +217,62 @@ test("duplicate qualifying results are rejected", () => {
         /duplicate qualifying results/
     );
 });
+
+
+test("B-main non-transfers retain their official finishing order", () => {
+    const input = createExampleEvent();
+
+    // Only these two cars remain in the B-main ranking group.
+    input.bMainResults = [
+        result("car-16", 1),
+        result("car-15", 2)
+    ];
+
+    const standings = buildEventStandings(input);
+
+    const car16 = standings.find(item => item.carId === "car-16");
+    const car15 = standings.find(item => item.carId === "car-15");
+
+    assert.ok(
+        car16.finishingPosition < car15.finishingPosition,
+        "The first B-main finisher must rank ahead of the second"
+    );
+});
+
+test("qualifying eliminations rank by distance, then qualifying order", () => {
+    const input = createExampleEvent();
+
+    // With no main or heat results, every car falls back to qualifying.
+    input.heatResults = [
+        { heatNumber: 1, results: [] },
+        { heatNumber: 2, results: [] },
+        { heatNumber: 3, results: [] },
+        { heatNumber: 4, results: [] }
+    ];
+    input.bMainResults = [];
+    input.aMainResults = [];
+
+    // Give two cars equal distance to exercise the qualifying-order
+    // tie-breaker. car-2 appeared before car-3 in qualifying.
+    input.qualifyingResults[1].distance = 99;
+    input.qualifyingResults[2].distance = 99;
+
+    const standings = buildEventStandings(input);
+
+    assert.equal(standings[0].carId, "car-1");
+    assert.equal(standings[1].carId, "car-2");
+    assert.equal(standings[2].carId, "car-3");
+});
+
+test("duplicate heat numbers are rejected", () => {
+    const input = createExampleEvent();
+
+    // Four entries are present, but heat 2 is missing and heat 1
+    // appears twice. These must not be accepted as four distinct heats.
+    input.heatResults[1].heatNumber = 1;
+
+    assert.throws(
+        () => buildEventStandings(input),
+        /distinct heats numbered 1 through 4/
+    );
+});
