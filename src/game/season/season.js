@@ -142,7 +142,8 @@ class Season {
         this.players = [...players];
         this.cars = [...cars];
         this.currentEvent = null;
-
+        // True once every scheduled event has been completed and scored.
+        this.isComplete = false;
         this.eventCount = eventCount;
 
         // Events are numbered starting at 1, not 0, because that is
@@ -301,6 +302,128 @@ class Season {
 
         return this.currentEvent;
     }
+    /**
+     * Record that a player is ready for the next event.
+     *
+     * The next event starts automatically when every player is ready.
+     * Readiness is tracked by player ID so repeated calls from the
+     * same player cannot count as multiple players.
+     */
+    markPlayerReadyForNextEvent(playerId) {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        if (this.isComplete) {
+            throw new Error("The season is complete.");
+        }
+
+        if (this.currentEvent.phase !== "complete") {
+            throw new Error(
+                "Players can only ready up after the event is complete."
+            );
+        }
+
+        if (this.currentEventNumber >= this.eventCount) {
+            throw new Error(
+                "There are no more events in this season."
+            );
+        }
+
+        const playerExists = this.players.some(
+            (player) => player.id === playerId
+        );
+
+        if (!playerExists) {
+            throw new Error("Player does not belong to this season.");
+        }
+
+        if (!this.readyPlayerIds.includes(playerId)) {
+            this.readyPlayerIds.push(playerId);
+        }
+
+        const allPlayersReady = this.players.every(
+            (player) => this.readyPlayerIds.includes(player.id)
+        );
+
+        // Wait for the remaining players before advancing.
+        if (!allPlayersReady) {
+            return {
+                allPlayersReady: false,
+                readyPlayerIds: [...this.readyPlayerIds],
+                nextEvent: null
+            };
+        }
+
+        const nextEvent = this.startNextEvent();
+
+        return {
+            allPlayersReady: true,
+            readyPlayerIds: [...this.readyPlayerIds],
+            nextEvent
+        };
+    }
+
+    /**
+     * Start the next event after every player has readied up.
+     *
+     * This method validates readiness itself, so callers cannot bypass
+     * the ready-up requirement by calling it directly.
+     */
+    startNextEvent() {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        if (this.isComplete) {
+            throw new Error("The season is complete.");
+        }
+
+        if (this.currentEvent.phase !== "complete") {
+            throw new Error(
+                "The current event must be complete before advancing."
+            );
+        }
+
+        if (this.currentEventNumber >= this.eventCount) {
+            throw new Error(
+                "There are no more events in this season."
+            );
+        }
+
+        const allPlayersReady = this.players.every(
+            (player) => this.readyPlayerIds.includes(player.id)
+        );
+
+        if (!allPlayersReady) {
+            throw new Error(
+                "Every player must be ready before the next event starts."
+            );
+        }
+
+        this.currentEventNumber += 1;
+
+        const qualifyingCarIds = this.draft.picks.map(
+            (pick) => pick.carId
+        );
+
+        const qualifyingSession = new QualifyingSession(
+            qualifyingCarIds
+        );
+
+        this.currentEvent = {
+            eventNumber: this.currentEventNumber,
+            phase: "qualifying",
+            qualifyingResults: [],
+            qualifyingSession
+        };
+
+        // Each event requires fresh readiness confirmations.
+        this.readyPlayerIds = [];
+
+        return this.currentEvent;
+    }
+
 
     /*
      * Return the active qualifying session.
@@ -972,6 +1095,12 @@ class Season {
         this.currentEvent.finalStandings = scoredStandings;
         this.currentEvent.phase = "complete";
         this.eventHistory.push(historyRecord);
+
+        // The season ends as soon as the final scheduled event is scored.
+        // No ready-up is needed after the final event.
+        if (this.currentEventNumber >= this.eventCount) {
+            this.isComplete = true;
+        }
 
         return scoredStandings;
     }

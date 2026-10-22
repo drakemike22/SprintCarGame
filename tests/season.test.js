@@ -1181,3 +1181,127 @@ test("event standings are calculated automatically after the A-main", () => {
     assert.equal(season.currentEvent.phase, "complete");
     assert.equal(season.eventHistory.length, 1);
 });
+
+
+test("one player's readiness does not start the next event", () => {
+    const { season, event } = startQualifyingSeason(2);
+    event.phase = "complete";
+
+    const result = season.markPlayerReadyForNextEvent("player-1");
+
+    assert.equal(result.allPlayersReady, false);
+    assert.equal(result.nextEvent, null);
+    assert.equal(season.currentEvent, event);
+    assert.deepEqual(season.readyPlayerIds, ["player-1"]);
+});
+
+test("the next event starts when every player is ready", () => {
+    const { season, event } = startQualifyingSeason(2);
+    event.phase = "complete";
+
+    season.markPlayerReadyForNextEvent("player-1");
+    const result = season.markPlayerReadyForNextEvent("player-2");
+
+    assert.equal(result.allPlayersReady, true);
+    assert.equal(result.nextEvent.eventNumber, 2);
+    assert.equal(result.nextEvent.phase, "qualifying");
+    assert.notEqual(result.nextEvent, event);
+    assert.ok(
+        result.nextEvent.qualifyingSession instanceof QualifyingSession
+    );
+    assert.equal(
+        result.nextEvent.qualifyingSession.isComplete,
+        false
+    );
+    assert.deepEqual(season.readyPlayerIds, []);
+    assert.equal(season.currentEventNumber, 2);
+});
+
+test("repeated readiness from one player does not count twice", () => {
+    const { season, event } = startQualifyingSeason(2);
+    event.phase = "complete";
+
+    season.markPlayerReadyForNextEvent("player-1");
+    season.markPlayerReadyForNextEvent("player-1");
+
+    assert.deepEqual(season.readyPlayerIds, ["player-1"]);
+    assert.equal(season.currentEvent, event);
+
+    const result = season.markPlayerReadyForNextEvent("player-2");
+
+    assert.equal(result.nextEvent.eventNumber, 2);
+});
+
+test("an unknown player cannot ready up for the next event", () => {
+    const { season, event } = startQualifyingSeason(2);
+    event.phase = "complete";
+
+    assert.throws(
+        () => season.markPlayerReadyForNextEvent("unknown-player"),
+        /does not belong to this season/i
+    );
+
+    assert.deepEqual(season.readyPlayerIds, []);
+    assert.equal(season.currentEvent, event);
+});
+
+test("the next event cannot start before the current event is complete", () => {
+    const { season } = startQualifyingSeason(2);
+
+    assert.throws(
+        () => season.startNextEvent(),
+        /current event must be complete/i
+    );
+});
+
+test("the next event cannot start until every player is ready", () => {
+    const { season, event } = startQualifyingSeason(2);
+    event.phase = "complete";
+
+    season.markPlayerReadyForNextEvent("player-1");
+
+    assert.throws(
+        () => season.startNextEvent(),
+        /every player must be ready/i
+    );
+
+    assert.equal(season.currentEvent, event);
+});
+
+
+test("scoring the final scheduled event completes the season", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    // Configure this as a one-event season for this test.
+    season.eventCount = 1;
+    season.currentEventNumber = 1;
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    season.recordAMainResults(
+        aMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    season.recordEventStandings();
+
+    assert.equal(season.currentEvent.phase, "complete");
+    assert.equal(season.eventHistory.length, 1);
+    assert.equal(season.isComplete, true);
+
+    assert.throws(
+        () => season.markPlayerReadyForNextEvent("player-1"),
+        /season is complete/i
+    );
+});
