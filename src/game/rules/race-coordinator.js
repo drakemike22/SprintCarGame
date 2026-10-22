@@ -23,34 +23,55 @@ const {
 /*
  * Creates the state for one individual race.
  *
- * We copy the cars and their positions so the coordinator does not
- * accidentally modify the original array supplied by the caller.
+ * lapsToComplete is optional to preserve compatibility with
+ * existing callers. Real heats and mains should supply their
+ * configured lap target.
  */
-function createRaceState(raceCars) {
+function createRaceState(raceCars, lapsToComplete = null) {
     if (!Array.isArray(raceCars)) {
         throw new Error("Race cars must be provided as an array.");
+    }
+
+    if (
+        lapsToComplete !== null &&
+        (!Number.isInteger(lapsToComplete) || lapsToComplete < 1)
+    ) {
+        throw new Error(
+            "Race lap target must be a positive integer or null."
+        );
     }
 
     // Let the round manager validate the cars and determine turn order.
     const round = createTurnRound(raceCars);
 
-    const copiedRaceCars = raceCars.map(raceCar => ({
+    const copiedRaceCars = raceCars.map((raceCar) => ({
         ...raceCar,
         position: raceCar.position
             ? { ...raceCar.position }
             : raceCar.position
     }));
 
+    const alreadyReachedTarget = lapsToComplete !== null &&
+        copiedRaceCars.some(
+            (raceCar) =>
+                raceCar.status === "running" &&
+                raceCar.completedLaps >= lapsToComplete
+        );
+
     return {
         raceCars: copiedRaceCars,
         round,
-        status: round.status === ROUND_STATUS.COMPLETED
+        lapsToComplete,
+        status: alreadyReachedTarget
             ? "completed"
-            : "running",
+            : round.status === ROUND_STATUS.COMPLETED
+                ? "completed"
+                : "running",
         yellowFlag: false,
         yellowFlagCarsToBack: []
     };
 }
+
 
 /*
  * Returns the car whose turn is currently due.
@@ -60,7 +81,9 @@ function getCurrentRaceCar(raceState) {
     if (!raceState || !Array.isArray(raceState.raceCars)) {
         throw new Error("A valid race state is required.");
     }
-
+    if (raceState.status === "completed") {
+        return null;
+    }
     const carId = getCurrentTurnCarId(raceState.round);
 
     if (carId === null || carId === undefined) {
@@ -73,39 +96,90 @@ function getCurrentRaceCar(raceState) {
 }
 
 /*
- * Records that the current car completed its turn.
- * The turn order stays fixed until the round is finished.
+ * Advances the race after a car finishes its turn.
+ *
+ * Without a lap target, the original behavior is preserved:
+ * the race state becomes "round-complete" at the end of a round.
+ *
+ * With a lap target:
+ * - A running car reaching the target ends the race.
+ * - Otherwise, a completed round automatically starts a new round.
+ * - A new round recalculates order from updated race positions.
  */
-function completeRaceCarTurn(raceState, carId) {
-    if (!raceState || !raceState.round) {
-        throw new Error("A valid race state is required.");
+function advanceRaceAfterTurn(raceState) {
+    const lapsToComplete = raceState.lapsToComplete;
+
+    if (lapsToComplete !== null && lapsToComplete !== undefined) {
+        const winnerReachedTarget = raceState.raceCars.some(
+            (raceCar) =>
+                raceCar.status === "running" &&
+                raceCar.completedLaps >= lapsToComplete
+        );
+
+        if (winnerReachedTarget) {
+            raceState.status = "completed";
+            return raceState;
+        }
     }
 
-    completeCurrentTurn(raceState.round, carId);
-
     if (raceState.round.status === ROUND_STATUS.COMPLETED) {
-        raceState.status = "round-complete";
+        // Preserve the original behavior for callers without a lap target.
+        if (lapsToComplete === null || lapsToComplete === undefined) {
+            raceState.status = "round-complete";
+            return raceState;
+        }
+
+        // The race continues: calculate the next round from current positions.
+        raceState.round = createTurnRound(raceState.raceCars);
+
+        // If every car is out, there are no more turns to run.
+        raceState.status =
+            raceState.round.status === ROUND_STATUS.COMPLETED
+                ? "completed"
+                : "running";
     }
 
     return raceState;
 }
 
 /*
+ * Records that the current car completed its turn.
+ * The turn order stays fixed until the round is finished.
+ */
+
+function completeRaceCarTurn(raceState, carId) {
+    if (!raceState || !raceState.round) {
+        throw new Error("A valid race state is required.");
+    }
+
+    if (raceState.status !== "running") {
+        throw new Error("The race is not accepting completed turns.");
+    }
+
+    completeCurrentTurn(raceState.round, carId);
+
+    return advanceRaceAfterTurn(raceState);
+}
+
+
+/*
  * Skips the current car's turn when race rules require it.
  */
+
 function skipRaceCarTurn(raceState, carId) {
     if (!raceState || !raceState.round) {
         throw new Error("A valid race state is required.");
     }
 
-    skipCurrentTurn(raceState.round, carId);
-
-    if (raceState.round.status === ROUND_STATUS.COMPLETED) {
-        raceState.status = "round-complete";
+    if (raceState.status !== "running") {
+        throw new Error("The race is not accepting skipped turns.");
     }
 
-    return raceState;
+    skipCurrentTurn(raceState.round, carId);
+
+    return advanceRaceAfterTurn(raceState);
 }
+
 
 /*
  * Stops the current round immediately when a yellow flag occurs.
