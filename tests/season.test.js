@@ -1305,3 +1305,60 @@ test("scoring the final scheduled event completes the season", () => {
         /season is complete/i
     );
 });
+
+
+test("a completed event advances to the next event and preserves season history", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    // Finish the first event using the existing race-phase methods.
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    season.recordAMainResults(
+        aMain.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const firstStandings = season.recordEventStandings();
+    const firstEventPoints = firstStandings.reduce(
+        (total, result) => total + result.points,
+        0
+    );
+
+    assert.equal(season.currentEvent.phase, "complete");
+    assert.equal(season.eventHistory.length, 1);
+
+    // Both players must ready up before Event 2 can begin.
+    const firstReady = season.markPlayerReadyForNextEvent("player-1");
+
+    assert.equal(firstReady.allPlayersReady, false);
+    assert.equal(season.currentEvent.eventNumber, 1);
+
+    const secondReady = season.markPlayerReadyForNextEvent("player-2");
+
+    assert.equal(secondReady.allPlayersReady, true);
+    assert.equal(secondReady.nextEvent.eventNumber, 2);
+    assert.equal(secondReady.nextEvent.phase, "qualifying");
+    assert.equal(season.currentEventNumber, 2);
+    assert.equal(season.readyPlayerIds.length, 0);
+
+    // Advancing must not erase the first event or its championship points.
+    assert.equal(season.eventHistory.length, 1);
+    assert.equal(season.eventHistory[0].eventNumber, 1);
+
+    const pointsAfterAdvance = Object.values(season.seasonPoints)
+        .reduce((total, points) => total + points, 0);
+
+    assert.equal(pointsAfterAdvance, firstEventPoints);
+    assert.equal(season.isComplete, false);
+});
