@@ -1096,6 +1096,109 @@ class Season {
             latestEventFinish: stats.latestEventFinish
         }));
     }
+    /*
+     * Build the Owner Championship leaderboard.
+     *
+     * Each player's total is the sum of championship points earned
+     * by every car they own this season.
+     *
+     * Tie-breakers:
+     * 1. Total owner points, highest first.
+     * 2. Best championship position held by any car they own.
+     *
+     * The car leaderboard remains the official source for car
+     * rankings and its own tie-breakers.
+     *
+     * This method is read-only. It does not change points, ownership,
+     * or event history.
+     */
+    getOwnerChampionshipStandings() {
+        // Get the official car rankings so owner ties use the
+        // complete Car Championship tie-break rules.
+        const carStandings = this.getChampionshipStandings();
+
+        const carRankings = new Map(
+            carStandings.map((standing) => [
+                standing.carId,
+                {
+                    championshipPosition: standing.championshipPosition,
+                    points: standing.points
+                }
+            ])
+        );
+
+        // Start with every player so the leaderboard also works
+        // before the draft or before the first event is completed.
+        const statistics = new Map(
+            this.players.map((player, playerIndex) => [
+                player.id,
+                {
+                    playerId: player.id,
+                    playerName: player.name,
+                    points: 0,
+                    carCount: 0,
+                    bestCarId: null,
+                    bestCarChampionshipPosition: Infinity,
+                    playerIndex
+                }
+            ])
+        );
+
+        // Sum each owned car's points and track each owner's
+        // highest-ranked car for the owner championship tie-break.
+        for (const car of this.cars) {
+            const ownerId = this.carOwners[car.id];
+            const ownerStats = statistics.get(ownerId);
+
+            // Ignore cars that have not been drafted or whose
+            // ownership record does not match a season player.
+            if (!ownerStats) {
+                continue;
+            }
+
+            const carStats = carRankings.get(car.id);
+
+            ownerStats.carCount += 1;
+            ownerStats.points += this.seasonPoints[car.id] ?? 0;
+
+            if (
+                carStats &&
+                carStats.championshipPosition <
+                    ownerStats.bestCarChampionshipPosition
+            ) {
+                ownerStats.bestCarId = car.id;
+                ownerStats.bestCarChampionshipPosition =
+                    carStats.championshipPosition;
+            }
+        }
+
+        // Highest combined points wins. If owners tie on points,
+        // the owner with the best-ranked car wins the tie.
+        // Player order provides a stable fallback if both values tie.
+        const ranked = [...statistics.values()].sort((a, b) =>
+            b.points - a.points ||
+            a.bestCarChampionshipPosition -
+                b.bestCarChampionshipPosition ||
+            a.playerIndex - b.playerIndex
+        );
+
+        // Return public leaderboard records without internal
+        // sorting data. An owner without a drafted car has null
+        // best-car fields until they own a car.
+        return ranked.map((stats, index) => ({
+            championshipPosition: index + 1,
+            playerId: stats.playerId,
+            playerName: stats.playerName,
+            points: stats.points,
+            carCount: stats.carCount,
+            bestCarId: stats.bestCarId,
+            bestCarChampionshipPosition:
+                Number.isFinite(stats.bestCarChampionshipPosition)
+                    ? stats.bestCarChampionshipPosition
+                    : null
+        }));
+    }
+
 
     recordEventStandings(finalStandings = null) {
         if (!this.currentEvent) {

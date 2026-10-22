@@ -1750,3 +1750,72 @@ test("championship standings accumulate across a complete multi-event season", (
         );
     }
 });
+
+
+test("owner championship totals points across all cars owned by each player", () => {
+    const season = makeSeason();
+    const [playerA, playerB] = season.players;
+    const [carA1, carA2, carB1, carB2] = season.cars;
+
+    // Give each player two cars.
+    season.carOwners[carA1.id] = playerA.id;
+    season.carOwners[carA2.id] = playerA.id;
+    season.carOwners[carB1.id] = playerB.id;
+    season.carOwners[carB2.id] = playerB.id;
+
+    // The owner totals should be 150 and 145, respectively.
+    season.seasonPoints[carA1.id] = 100;
+    season.seasonPoints[carA2.id] = 50;
+    season.seasonPoints[carB1.id] = 90;
+    season.seasonPoints[carB2.id] = 55;
+
+    const standings = season.getOwnerChampionshipStandings();
+
+    assert.equal(standings.length, 2);
+    assert.equal(standings[0].playerId, playerA.id);
+    assert.equal(standings[0].points, 150);
+    assert.equal(standings[0].championshipPosition, 1);
+    assert.equal(standings[1].playerId, playerB.id);
+    assert.equal(standings[1].points, 145);
+    assert.equal(standings[1].championshipPosition, 2);
+});
+
+test("owner championship breaks a points tie using each owner's best-ranked car", () => {
+    const season = makeSeason();
+    const [playerA, playerB] = season.players;
+    const [carA1, carB1, carA2, carB2] = season.cars;
+
+    // Player A's best car has 100 points.
+    // Player B's best car has 90 points, but B's second car
+    // brings the owner's combined total to the same 100 points.
+    season.carOwners[carA1.id] = playerA.id;
+    season.carOwners[carA2.id] = playerA.id;
+    season.carOwners[carB1.id] = playerB.id;
+    season.carOwners[carB2.id] = playerB.id;
+
+    season.seasonPoints[carA1.id] = 100;
+    season.seasonPoints[carA2.id] = 0;
+    season.seasonPoints[carB1.id] = 90;
+    season.seasonPoints[carB2.id] = 10;
+
+    const carStandings = season.getChampionshipStandings();
+    const ownerStandings = season.getOwnerChampionshipStandings();
+
+    // Both owners have 100 points, so the owner whose best car
+    // ranks higher in the Car Championship should win the tie.
+    assert.equal(ownerStandings[0].points, 100);
+    assert.equal(ownerStandings[1].points, 100);
+    assert.equal(ownerStandings[0].playerId, playerA.id);
+
+    const playerABestCar = carStandings.find(
+        (standing) => standing.carId === carA1.id
+    );
+    const playerBBestCar = carStandings.find(
+        (standing) => standing.carId === carB1.id
+    );
+
+    assert.ok(
+        playerABestCar.championshipPosition <
+        playerBBestCar.championshipPosition
+    );
+});
