@@ -28,6 +28,9 @@ const {
 const {
     scoreEventStandings
 } = require("./scoring");
+const {
+    buildEventStandings
+} = require("./event-standings");
 class Season {
     constructor({ id, players, cars, eventCount }) {
         // ---------------------------------------------------------
@@ -764,7 +767,55 @@ class Season {
      * for eliminated cars. The event-results workflow must determine
      * their official positions before calling this method.
      */
-    recordEventStandings(finalStandings) {
+
+    /*
+     * Calculate the official final positions for the current event.
+     *
+     * This uses the qualifying, heat, B-main, and A-main results
+     * already recorded by the Season. It does not award points;
+     * recordEventStandings() remains responsible for that.
+     */
+    calculateEventStandings() {
+        if (!this.currentEvent) {
+            throw new Error("There is no active event.");
+        }
+
+        if (this.currentEvent.phase !== "a-main") {
+            throw new Error(
+                "Event standings can only be calculated after the A-main."
+            );
+        }
+
+        if (!this.currentEvent.qualifyingResults?.length) {
+            throw new Error("Qualifying results are required.");
+        }
+
+        if (!this.currentEvent.heatResults) {
+            throw new Error("Heat results are required.");
+        }
+
+        if (!this.currentEvent.bMainResults) {
+            throw new Error("B-main results are required.");
+        }
+
+        if (!this.currentEvent.aMainResults) {
+            throw new Error("A-main results are required.");
+        }
+
+        const draftedCarIds = this.draft.picks.map(
+            pick => pick.carId
+        );
+
+        return buildEventStandings({
+            draftedCarIds,
+            qualifyingResults: this.currentEvent.qualifyingResults,
+            heatResults: this.currentEvent.heatResults,
+            bMainResults: this.currentEvent.bMainResults,
+            aMainResults: this.currentEvent.aMainResults
+        });
+    }
+
+    recordEventStandings(finalStandings = null) {
         if (!this.currentEvent) {
             throw new Error("There is no active event.");
         }
@@ -818,18 +869,24 @@ class Season {
             this.draft.picks.map((pick) => pick.carId)
         );
 
-        if (!Array.isArray(finalStandings)) {
+
+        // Use the supplied standings when provided; otherwise,
+        // calculate the official ranking from the recorded race results.
+        const standingsToScore =
+            finalStandings ?? this.calculateEventStandings();
+
+        if (!Array.isArray(standingsToScore)) {
             throw new Error("Final standings must be an array.");
         }
 
-        if (finalStandings.length !== expectedCarIds.size) {
+        if (standingsToScore.length !== expectedCarIds.size) {
             throw new Error(
                 "Final standings must include every drafted car exactly once."
             );
         }
 
         const suppliedCarIds = new Set(
-            finalStandings.map((standing) => standing?.carId)
+            standingsToScore.map((standing) => standing?.carId)
         );
 
         if (
@@ -844,8 +901,8 @@ class Season {
         }
 
         // Validate and score the complete results before changing
-        // any championship totals.
-        const scoredStandings = scoreEventStandings(finalStandings);
+        // any championship totals
+        const scoredStandings = scoreEventStandings(standingsToScore);
 
         // Build a separate history record so the official results
         // remain available after the event is closed.

@@ -1137,3 +1137,47 @@ test("final event standings award championship points exactly once", () => {
     // test makes no changes to shared test setup.
     assert.equal(season.eventHistory.length, 0);
 });
+
+
+test("event standings are calculated automatically after the A-main", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    season.recordBMainResults(
+        bMain.entries.map(entry => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const aMain = season.createAMainLineup();
+
+    season.recordAMainResults(
+        aMain.entries.map(entry => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    const standings = season.calculateEventStandings();
+
+    assert.equal(standings.length, season.draft.picks.length);
+
+    assert.deepEqual(
+        standings.map(result => result.finishingPosition),
+        standings.map((_, index) => index + 1)
+    );
+
+    assert.equal(
+        new Set(standings.map(result => result.carId)).size,
+        season.draft.picks.length
+    );
+
+    const scored = season.recordEventStandings();
+
+    assert.equal(scored.length, season.draft.picks.length);
+    assert.equal(scored[0].points, 75);
+    assert.equal(season.currentEvent.phase, "complete");
+    assert.equal(season.eventHistory.length, 1);
+});
