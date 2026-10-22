@@ -13,6 +13,10 @@ const {
 } = require("../src/game/rules/race-coordinator");
 
 const { CAR_STATUSES } = require("../src/game/rules/car-status");
+const {
+    startMovementTurn,
+    chooseMovementTurnPosition
+} = require("../src/game/track/movement-turn");
 
 function makeCar(carId, section, lane = 2, status = CAR_STATUSES.RUNNING) {
     return {
@@ -132,6 +136,160 @@ test("applies movement progress and advances to the next car", () => {
     assert.equal(updatedCar.distance, 2);
     assert.equal(updatedCar.completedLaps, 0);
     assert.equal(getCurrentRaceCar(race).carId, "car-a");
+});
+
+test("accepts a valid movement plan against live track occupancy", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    let turn = startMovementTurn({
+        currentPosition: { section: 12, lane: 2 },
+        occupiedPositions: [{ section: 5, lane: 2 }],
+        movementRemaining: 2,
+        laneChangesRemaining: 0
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 13,
+        lane: 2
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 14,
+        lane: 2
+    });
+
+    applyCompletedRaceTurn(race, "car-b", turn);
+
+    const updatedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.deepEqual(updatedCar.position, {
+        section: 14,
+        lane: 2
+    });
+    assert.equal(updatedCar.distance, 2);
+});
+
+test("rejects a movement plan when another running car moves", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    let turn = startMovementTurn({
+        currentPosition: { section: 12, lane: 2 },
+        occupiedPositions: [{ section: 5, lane: 2 }],
+        movementRemaining: 2,
+        laneChangesRemaining: 0
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 13,
+        lane: 2
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 14,
+        lane: 2
+    });
+
+    // Another running car moves after the route was planned.
+    race.raceCars.find(
+        car => car.carId === "car-a"
+    ).position = { section: 13, lane: 2 };
+
+    const carsBefore = JSON.parse(JSON.stringify(race.raceCars));
+    const roundBefore = JSON.parse(JSON.stringify(race.round));
+    const statusBefore = race.status;
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /Occupied spaces changed/
+    );
+
+    // A rejected route must not partially update the race.
+    assert.deepEqual(race.raceCars, carsBefore);
+    assert.deepEqual(race.round, roundBefore);
+    assert.equal(race.status, statusBefore);
+});
+
+test("rejects a movement plan that starts at the wrong position", () => {
+    const race = createRaceState([
+        makeCar("car-a", 5),
+        makeCar("car-b", 12)
+    ]);
+
+    let turn = startMovementTurn({
+        // The actual car is at section 12, not section 11.
+        currentPosition: { section: 11, lane: 2 },
+        occupiedPositions: [{ section: 5, lane: 2 }],
+        movementRemaining: 2,
+        laneChangesRemaining: 0
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 12,
+        lane: 2
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 13,
+        lane: 2
+    });
+
+    const carsBefore = JSON.parse(JSON.stringify(race.raceCars));
+    const roundBefore = JSON.parse(JSON.stringify(race.round));
+
+    assert.throws(
+        () => applyCompletedRaceTurn(race, "car-b", turn),
+        /starting position does not match/
+    );
+
+    assert.deepEqual(race.raceCars, carsBefore);
+    assert.deepEqual(race.round, roundBefore);
+});
+
+test("cars out of the race or event do not block movement plans", () => {
+    const race = createRaceState([
+        makeCar("car-a", 13, 2, CAR_STATUSES.OUT_FOR_RACE),
+        makeCar("car-c", 14, 2, CAR_STATUSES.OUT_FOR_EVENT),
+        makeCar("car-b", 12)
+    ]);
+
+    let turn = startMovementTurn({
+        currentPosition: { section: 12, lane: 2 },
+        // Neither off-track car should appear in this snapshot.
+        occupiedPositions: [],
+        movementRemaining: 2,
+        laneChangesRemaining: 0
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 13,
+        lane: 2
+    });
+
+    turn = chooseMovementTurnPosition(turn, {
+        section: 14,
+        lane: 2
+    });
+
+    assert.doesNotThrow(() => {
+        applyCompletedRaceTurn(race, "car-b", turn);
+    });
+
+    const updatedCar = race.raceCars.find(
+        car => car.carId === "car-b"
+    );
+
+    assert.deepEqual(updatedCar.position, {
+        section: 14,
+        lane: 2
+    });
 });
 
 test("counts a lap when a completed turn crosses the finish line", () => {

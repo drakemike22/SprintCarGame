@@ -10,7 +10,8 @@
  */
 const { applyRaceProgress } = require("./apply-race-progress");
 const { resolveWreck } = require("./resolve-wreck");
-
+const { validateMovementPlan } = require("../track/movement-planner");
+const { CAR_STATUSES } = require("./car-status");
 const {
     ROUND_STATUS,
     createTurnRound,
@@ -339,6 +340,89 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
     const stagedRaceCars = raceState.raceCars.slice();
     // Start with the race car's current state.
     const currentCar = stagedRaceCars[carIndex];
+    /*
+     * Validate planner-backed turns against the live race state.
+     *
+     * Only running cars occupy track spaces. Cars that are out for
+     * the race or event retain their records for scoring, but no
+     * longer block another car's movement.
+     *
+     * Legacy turns without movementPlan remain supported.
+     */
+    if (turn && turn.movementPlan) {
+        const plan = turn.movementPlan;
+
+        // The planned route must begin at this car's actual position.
+        const plannedStart = Array.isArray(plan.history)
+            ? plan.history[0]
+            : null;
+
+        if (
+            !plannedStart ||
+            !currentCar.position ||
+            plannedStart.section !== currentCar.position.section ||
+            plannedStart.lane !== currentCar.position.lane
+        ) {
+            throw new Error(
+                "Invalid movement plan: the starting position does not match the current car position."
+            );
+        }
+
+        // Build a fresh snapshot from cars that physically occupy the track.
+        const liveOccupiedPositions = raceState.raceCars
+            .filter(raceCar =>
+                raceCar.carId !== carId &&
+                raceCar.status === CAR_STATUSES.RUNNING
+            )
+            .map(raceCar => raceCar.position);
+
+        // This detects cars that have moved since the route was planned.
+        const validation = validateMovementPlan(
+            plan,
+            liveOccupiedPositions
+        );
+
+        if (!validation.valid) {
+            throw new Error(
+                `Invalid movement plan: ${validation.reason}`
+            );
+        }
+
+        // Do not let duplicated turn fields disagree with the validated plan.
+        const positionsMatch = (left, right) =>
+            left &&
+            right &&
+            left.section === right.section &&
+            left.lane === right.lane;
+
+        if (!positionsMatch(turn.position, plan.position)) {
+            throw new Error(
+                "Invalid movement plan: the turn position does not match the plan."
+            );
+        }
+
+        if (
+            !Array.isArray(turn.history) ||
+            turn.history.length !== plan.history.length ||
+            !turn.history.every((position, index) =>
+                positionsMatch(position, plan.history[index])
+            )
+        ) {
+            throw new Error(
+                "Invalid movement plan: the turn history does not match the plan."
+            );
+        }
+
+        const expectedTurnStatus = plan.status === "blocked"
+            ? "stuck"
+            : "complete";
+
+        if (turn.status !== expectedTurnStatus) {
+            throw new Error(
+                "Invalid movement plan: the turn status does not match the plan."
+            );
+        }
+    }
 
     // Preserve status and mechanical damage recorded by turn resolution.
     const resolvedCar = turn.raceCar
