@@ -988,6 +988,114 @@ class Season {
             aMainResults: this.currentEvent.aMainResults
         });
     }
+        /*
+     * Build the current championship leaderboard.
+     *
+     * This method is read-only: it calculates the rankings from
+     * accumulated season points and completed event history without
+     * changing either one.
+     *
+     * Tie-breakers:
+     * 1. Total championship points, highest first.
+     * 2. A-main wins, most first.
+     * 3. A-main top-five finishes, most first.
+     * 4. A-main top-ten finishes, most first.
+     * 5. Best overall finishing position in the latest event.
+     *
+     * Cars with no completed-event results remain on the leaderboard.
+     */
+    getChampionshipStandings() {
+        // Create statistics for every car, including undrafted cars.
+        const statistics = new Map(
+            this.cars.map((car, rosterIndex) => [
+                car.id,
+                {
+                    carId: car.id,
+                    points: this.seasonPoints[car.id] ?? 0,
+                    aMainWins: 0,
+                    aMainTopFiveFinishes: 0,
+                    aMainTopTenFinishes: 0,
+                    latestEventFinish: null,
+                    rosterIndex
+                }
+            ])
+        );
+
+        // Calculate A-main statistics from each completed event.
+        for (const event of this.eventHistory) {
+            const aMainResults = Array.isArray(event.aMainResults)
+                ? event.aMainResults
+                : [];
+
+            for (const result of aMainResults) {
+                const stats = statistics.get(result.carId);
+
+                // Ignore malformed or unrelated history entries rather
+                // than allowing them to create unknown championship cars.
+                if (
+                    !stats ||
+                    !Number.isInteger(result.finishingPosition) ||
+                    result.finishingPosition < 1
+                ) {
+                    continue;
+                }
+
+                const position = result.finishingPosition;
+
+                if (position === 1) {
+                    stats.aMainWins += 1;
+                }
+
+                if (position <= 5) {
+                    stats.aMainTopFiveFinishes += 1;
+                }
+
+                if (position <= 10) {
+                    stats.aMainTopTenFinishes += 1;
+                }
+            }
+
+            // Event standings contain all drafted cars, including
+            // cars that did not transfer into the A-main.
+            const eventStandings = Array.isArray(event.standings)
+                ? event.standings
+                : [];
+
+            for (const result of eventStandings) {
+                const stats = statistics.get(result.carId);
+
+                if (
+                    stats &&
+                    Number.isInteger(result.finishingPosition) &&
+                    result.finishingPosition >= 1
+                ) {
+                    stats.latestEventFinish = result.finishingPosition;
+                }
+            }
+        }
+
+        // Rank by points and then apply the championship tie-breakers.
+        const ranked = [...statistics.values()].sort((a, b) =>
+            b.points - a.points ||
+            b.aMainWins - a.aMainWins ||
+            b.aMainTopFiveFinishes - a.aMainTopFiveFinishes ||
+            b.aMainTopTenFinishes - a.aMainTopTenFinishes ||
+            (a.latestEventFinish ?? Infinity) -
+                (b.latestEventFinish ?? Infinity) ||
+            a.rosterIndex - b.rosterIndex
+        );
+
+        // Return a clean public result without internal sorting data.
+        return ranked.map((stats, index) => ({
+            championshipPosition: index + 1,
+            carId: stats.carId,
+            points: stats.points,
+            aMainWins: stats.aMainWins,
+            aMainTopFiveFinishes: stats.aMainTopFiveFinishes,
+            aMainTopTenFinishes: stats.aMainTopTenFinishes,
+            latestEventFinish: stats.latestEventFinish
+        }));
+    }
 
     recordEventStandings(finalStandings = null) {
         if (!this.currentEvent) {
@@ -1082,11 +1190,18 @@ class Season {
         // remain available after the event is closed.
         const historyRecord = {
             eventNumber: this.currentEvent.eventNumber,
+
+            // Preserve official event standings for the championship record.
             standings: scoredStandings.map((standing) => ({
                 ...standing
+            })),
+
+            // Preserve the official A-main finishing order so the season
+            // leaderboard can calculate wins, top-five, and top-ten finishes.
+            aMainResults: this.currentEvent.aMainResults.map((result) => ({
+                ...result
             }))
         };
-
         // Apply each car's points exactly once.
         for (const standing of scoredStandings) {
             this.seasonPoints[standing.carId] += standing.points;

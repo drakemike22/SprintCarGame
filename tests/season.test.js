@@ -1362,3 +1362,228 @@ test("a completed event advances to the next event and preserves season history"
     assert.equal(pointsAfterAdvance, firstEventPoints);
     assert.equal(season.isComplete, false);
 });
+
+test("championship standings include all 32 cars before any events", () => {
+    const { season } = startQualifyingSeason();
+
+    const standings = season.getChampionshipStandings();
+
+    assert.equal(standings.length, 32);
+    assert.equal(standings[0].championshipPosition, 1);
+    assert.equal(standings[31].championshipPosition, 32);
+
+    for (const standing of standings) {
+        assert.equal(standing.points, 0);
+        assert.equal(standing.aMainWins, 0);
+        assert.equal(standing.aMainTopFiveFinishes, 0);
+        assert.equal(standing.aMainTopTenFinishes, 0);
+        assert.equal(standing.latestEventFinish, null);
+    }
+});
+
+test("championship standings rank by points before tie-breakers", () => {
+    const { season } = startQualifyingSeason();
+    const [firstCar, secondCar] = season.cars;
+
+    season.seasonPoints[firstCar.id] = 100;
+    season.seasonPoints[secondCar.id] = 90;
+
+    // The lower-points car has more wins, but points take priority.
+    season.eventHistory.push({
+        eventNumber: 1,
+        standings: [
+            { carId: firstCar.id, finishingPosition: 2 },
+            { carId: secondCar.id, finishingPosition: 1 }
+        ],
+        aMainResults: [
+            { carId: secondCar.id, finishingPosition: 1 }
+        ]
+    });
+
+    const standings = season.getChampionshipStandings();
+
+    assert.equal(standings[0].carId, firstCar.id);
+    assert.equal(standings[0].points, 100);
+    assert.equal(standings[1].carId, secondCar.id);
+    assert.equal(standings[1].aMainWins, 1);
+});
+
+
+test("championship standings use A-main wins to break point ties", () => {
+    const { season } = startQualifyingSeason();
+    const [carA, carB] = season.cars;
+
+    // Keep championship points tied so A-main wins decide the ranking.
+    season.seasonPoints[carA.id] = 100;
+    season.seasonPoints[carB.id] = 100;
+
+    // Car B wins both events. Car A finishes second in both.
+    season.eventHistory.push({
+        eventNumber: 1,
+        standings: [
+            { carId: carA.id, finishingPosition: 2 },
+            { carId: carB.id, finishingPosition: 1 }
+        ],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 2 },
+            { carId: carB.id, finishingPosition: 1 }
+        ]
+    });
+
+    season.eventHistory.push({
+        eventNumber: 2,
+        standings: [
+            { carId: carA.id, finishingPosition: 2 },
+            { carId: carB.id, finishingPosition: 1 }
+        ],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 2 },
+            { carId: carB.id, finishingPosition: 1 }
+        ]
+    });
+
+    const standings = season.getChampionshipStandings();
+
+    assert.equal(standings[0].carId, carB.id);
+    assert.equal(standings[0].points, 100);
+    assert.equal(standings[0].aMainWins, 2);
+
+    assert.equal(standings[1].carId, carA.id);
+    assert.equal(standings[1].points, 100);
+    assert.equal(standings[1].aMainWins, 0);
+});
+
+
+test("championship standings count A-main top-five and top-ten finishes", () => {
+    const { season } = startQualifyingSeason();
+    const [carA, carB, carC] = season.cars;
+
+    // Equal points ensure the A-main tie-breakers are evaluated.
+    for (const car of [carA, carB, carC]) {
+        season.seasonPoints[car.id] = 100;
+    }
+
+    season.eventHistory.push({
+        eventNumber: 1,
+        standings: [],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 1 },
+            { carId: carB.id, finishingPosition: 2 },
+            { carId: carC.id, finishingPosition: 6 }
+        ]
+    });
+
+    season.eventHistory.push({
+        eventNumber: 2,
+        standings: [],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 2 },
+            { carId: carB.id, finishingPosition: 6 },
+            { carId: carC.id, finishingPosition: 11 }
+        ]
+    });
+
+    season.eventHistory.push({
+        eventNumber: 3,
+        standings: [],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 11 },
+            { carId: carB.id, finishingPosition: 3 },
+            { carId: carC.id, finishingPosition: 1 }
+        ]
+    });
+
+    const standings = season.getChampionshipStandings();
+    const statsByCar = new Map(
+        standings.map((standing) => [standing.carId, standing])
+    );
+
+    // Car A: one win, two top-five finishes, two top-ten finishes.
+    assert.equal(statsByCar.get(carA.id).aMainWins, 1);
+    assert.equal(statsByCar.get(carA.id).aMainTopFiveFinishes, 2);
+    assert.equal(statsByCar.get(carA.id).aMainTopTenFinishes, 2);
+
+    // Car B: no wins, two top-five finishes, three top-ten finishes.
+    assert.equal(statsByCar.get(carB.id).aMainWins, 0);
+    assert.equal(statsByCar.get(carB.id).aMainTopFiveFinishes, 2);
+    assert.equal(statsByCar.get(carB.id).aMainTopTenFinishes, 3);
+
+    // Car C: one win, one top-five finish, two top-ten finishes.
+    assert.equal(statsByCar.get(carC.id).aMainWins, 1);
+    assert.equal(statsByCar.get(carC.id).aMainTopFiveFinishes, 1);
+    assert.equal(statsByCar.get(carC.id).aMainTopTenFinishes, 2);
+
+    // Car A and C each have one win, so A's additional top-five
+    // finish puts it ahead of C. Both rank ahead of B, who has no wins.
+    assert.ok(
+        standings.findIndex((standing) => standing.carId === carA.id) <
+        standings.findIndex((standing) => standing.carId === carC.id)
+    );
+
+    assert.ok(
+        standings.findIndex((standing) => standing.carId === carC.id) <
+        standings.findIndex((standing) => standing.carId === carB.id)
+    );
+});
+
+
+test("championship standings use latest event finish as the final tie-breaker", () => {
+    const { season } = startQualifyingSeason();
+    const [carA, carB] = season.cars;
+
+    season.seasonPoints[carA.id] = 100;
+    season.seasonPoints[carB.id] = 100;
+
+    season.eventHistory.push({
+        eventNumber: 1,
+        standings: [
+            { carId: carA.id, finishingPosition: 1 },
+            { carId: carB.id, finishingPosition: 2 }
+        ],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 1 },
+            { carId: carB.id, finishingPosition: 1 }
+        ]
+    });
+
+    season.eventHistory.push({
+        eventNumber: 2,
+        standings: [
+            { carId: carA.id, finishingPosition: 5 },
+            { carId: carB.id, finishingPosition: 2 }
+        ],
+        aMainResults: [
+            { carId: carA.id, finishingPosition: 1 },
+            { carId: carB.id, finishingPosition: 1 }
+        ]
+    });
+
+    const standings = season.getChampionshipStandings();
+
+    assert.equal(standings[0].carId, carB.id);
+    assert.equal(standings[0].latestEventFinish, 2);
+    assert.equal(standings[1].carId, carA.id);
+    assert.equal(standings[1].latestEventFinish, 5);
+});
+
+test("championship standings do not mutate points or event history", () => {
+    const { season } = startQualifyingSeason();
+
+    season.eventHistory.push({
+        eventNumber: 1,
+        standings: [
+            { carId: season.cars[0].id, finishingPosition: 1 }
+        ],
+        aMainResults: [
+            { carId: season.cars[0].id, finishingPosition: 1 }
+        ]
+    });
+
+    const pointsBefore = { ...season.seasonPoints };
+    const historyBefore = JSON.stringify(season.eventHistory);
+
+    season.getChampionshipStandings();
+
+    assert.deepEqual(season.seasonPoints, pointsBefore);
+    assert.equal(JSON.stringify(season.eventHistory), historyBefore);
+});
