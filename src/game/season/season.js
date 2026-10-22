@@ -25,6 +25,10 @@ const { QualifyingSession } = require("./qualifying-session");
 const {
     createRaceResults
 } = require("../rules/race-results");
+
+const {
+    createRaceFinishers
+} = require("../rules/race-finishers");
 const {
     scoreEventStandings
 } = require("./scoring");
@@ -264,8 +268,8 @@ class Season {
             carId
         };
     }
-    
-    
+
+
     startFirstEvent() {
         // The first event can only begin after the draft is complete.
         if (this.draft.status !== "complete") {
@@ -437,7 +441,33 @@ class Season {
 
         return heats;
     }
+    /*
+     * Convert a completed live race into the finisher records expected
+     * by the existing season result-recording methods.
+     *
+     * The official order must be supplied by the caller. We never
+     * guess how retired or eliminated cars should be ordered.
+     */
+    _createCompletedRaceFinishers(raceState, officialCarOrder) {
+        if (!raceState || raceState.status !== "completed") {
+            throw new Error(
+                "Race results can only be recorded after the race is completed."
+            );
+        }
 
+        return createRaceFinishers(raceState, officialCarOrder);
+    }
+    /*
+     * Record a heat directly from its completed race state.
+     */
+    recordHeatRaceResults(heatNumber, raceState, officialCarOrder) {
+        const finishers = this._createCompletedRaceFinishers(
+            raceState,
+            officialCarOrder
+        );
+
+        return this.recordHeatResults(heatNumber, finishers);
+    }
     /*
      * Record the official finishing order for one heat.
      *
@@ -543,6 +573,17 @@ class Season {
         this.currentEvent.phase = "b-main";
 
         return this.currentEvent.bMainLineup;
+    }
+     /*
+     * Record the B-main directly from its completed race state.
+     */
+    recordBMainRaceResults(raceState, officialCarOrder) {
+        const finishers = this._createCompletedRaceFinishers(
+            raceState,
+            officialCarOrder
+        );
+
+        return this.recordBMainResults(finishers);
     }
     /**
      * Records the B-main finishing order and awards transfer positions.
@@ -673,7 +714,17 @@ class Season {
 
         return this.currentEvent.aMainLineup;
     }
+    /*
+     * Record the A-main directly from its completed race state.
+     */
+    recordAMainRaceResults(raceState, officialCarOrder) {
+        const finishers = this._createCompletedRaceFinishers(
+            raceState,
+            officialCarOrder
+        );
 
+        return this.recordAMainResults(finishers);
+    }
     /**
      * Records the official A-main finishing order.
      *
