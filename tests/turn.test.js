@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const {
     startTurn,
     chooseTurnPosition,
+    undoTurnPosition,
     resolveMechanicalSpinner,
     resolveWreckSpinner
 } = require("../src/game/rules/turn");
@@ -482,4 +483,95 @@ test("resolving a wreck spinner records the selected outcome", () => {
 
     assert.equal(resolved.raceCar.status, "running");
     assert.equal(raceCar.status, "running");
+});
+
+test("undoing a movement choice restores the previous turn state", () => {
+    const initialTurn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 3,
+        laneChangeDie: 3,
+        eventDie: 4
+    });
+
+    assert.equal(initialTurn.status, "waiting-for-choice");
+    assert.equal(initialTurn.eventResolution.status, "pending");
+
+    const turnAfterChoice = chooseTurnPosition(initialTurn, {
+        section: 26,
+        lane: 1
+    });
+
+    assert.equal(turnAfterChoice.status, "waiting-for-choice");
+    assert.deepEqual(turnAfterChoice.position, {
+        section: 26,
+        lane: 1
+    });
+    assert.equal(turnAfterChoice.movementRemaining, 14);
+
+    const undoneTurn = undoTurnPosition(turnAfterChoice);
+
+    // The most recent choice is removed from the movement history.
+    assert.equal(undoneTurn.status, "waiting-for-choice");
+    assert.deepEqual(undoneTurn.position, {
+        section: 25,
+        lane: 1
+    });
+    assert.deepEqual(undoneTurn.history, [
+        { section: 25, lane: 1 }
+    ]);
+
+    // Undo restores the allowance spent by that choice.
+    assert.equal(undoneTurn.movementRemaining, 15);
+    assert.equal(undoneTurn.laneChangesRemaining, 2);
+
+    // Dice and pending event state remain intact.
+    assert.deepEqual(undoneTurn.dice, {
+        movement: 3,
+        laneChange: 3,
+        event: 4
+    });
+    assert.equal(undoneTurn.eventResolution.status, "pending");
+    assert.equal(undoneTurn.mechanicalWheel.status, "pending");
+    assert.equal(undoneTurn.wreckWheel.status, "pending");
+
+    // Undo returns a new state; it does not mutate the original turn.
+    assert.deepEqual(turnAfterChoice.position, {
+        section: 26,
+        lane: 1
+    });
+    assert.equal(turnAfterChoice.movementRemaining, 14);
+});
+
+test("undoing a turn rejects a turn with no movement choice", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 3,
+        laneChangeDie: 3,
+        eventDie: 4
+    });
+
+    assert.throws(
+        () => undoTurnPosition(turn),
+        /no route choice available to undo/i
+    );
+});
+
+test("undoing a turn rejects movement after the turn finishes", () => {
+    const turn = startCompletedTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 2,
+        laneChangeDie: 3,
+        eventDie: 4
+    });
+
+    assert.equal(turn.status, "complete");
+    assert.equal(turn.eventResolution.status, "resolved");
+
+    assert.throws(
+        () => undoTurnPosition(turn),
+        /waiting for a movement choice/i
+    );
 });

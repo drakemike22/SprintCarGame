@@ -180,10 +180,29 @@ function undoMovementTurn(turn) {
         );
     }
 
+    /*
+     * turn.js creates pending event and wheel records before movement
+     * is finished. Those pending records must not prevent undo.
+     *
+     * Once event resolution or wheel processing has actually started,
+     * movement history must remain fixed.
+     */
+    const eventResolutionStarted =
+        turn.eventResolution &&
+        turn.eventResolution.status !== "pending";
+
+    const mechanicalWheelStarted =
+        turn.mechanicalWheel &&
+        turn.mechanicalWheel.status !== "pending";
+
+    const wreckWheelStarted =
+        turn.wreckWheel &&
+        turn.wreckWheel.status !== "pending";
+
     if (
-        turn.eventResolution ||
-        turn.mechanicalWheel ||
-        turn.wreckWheel
+        eventResolutionStarted ||
+        mechanicalWheelStarted ||
+        wreckWheelStarted
     ) {
         throw new Error(
             "Movement cannot be undone after event resolution begins."

@@ -32,7 +32,8 @@ const {
 
 const {
     startMovementTurn,
-    chooseMovementTurnPosition
+    chooseMovementTurnPosition,
+    undoMovementTurn
 } = require("../track/movement-turn");
 
 function validateDie(value, name) {
@@ -149,6 +150,46 @@ function chooseTurnPosition(turn, targetPosition) {
 
     return finishTurnIfReady(nextTurn);
 }
+/*
+ * Undoes the most recent movement choice through the public turn API.
+ *
+ * Undo is intentionally restricted to active movement planning.
+ * The event and wheel records must still be pending; once movement
+ * finishes and an event resolves, the turn must not be rewound.
+ *
+ * The adapter restores the previous position and recalculates the
+ * remaining movement and lane-change allowances. Dice, race-car data,
+ * and pending event records are preserved.
+ */
+function undoTurnPosition(turn) {
+    if (!turn || turn.status !== "waiting-for-choice") {
+        throw new Error(
+            "A turn must be waiting for a movement choice to undo."
+        );
+    }
+
+    if (
+        !turn.eventResolution ||
+        turn.eventResolution.status !== "pending"
+    ) {
+        throw new Error(
+            "A turn can only be undone before event resolution begins."
+        );
+    }
+
+    if (
+        (turn.mechanicalWheel &&
+            turn.mechanicalWheel.status !== "pending") ||
+        (turn.wreckWheel &&
+            turn.wreckWheel.status !== "pending")
+    ) {
+        throw new Error(
+            "A turn can only be undone before wheel processing begins."
+        );
+    }
+
+    return undoMovementTurn(turn);
+}
 
 function resolveMechanicalSpinner(turn, slot) {
     if (
@@ -263,6 +304,7 @@ function resolveWreckSpinner(turn, slot, occupiedPositions = []) {
 module.exports = {
     startTurn,
     chooseTurnPosition,
+    undoTurnPosition,
     resolveMechanicalSpinner,
     resolveWreckSpinner
 };
