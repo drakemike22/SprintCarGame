@@ -378,3 +378,91 @@ test("rejects an invalid position in route history", () => {
 
     assert.equal(result.valid, false);
 });
+
+
+test("undo after a blocked state restores the previous planning state", () => {
+    const plan = makePlan({
+        movementAllowance: 3,
+        laneChangeAllowance: 2,
+        occupiedPositions: [
+            { section: 12, lane: 0 },
+            { section: 12, lane: 1 },
+            { section: 12, lane: 2 },
+            { section: 12, lane: 3 }
+        ]
+    });
+
+    const moved = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    // Section 12 is blocked, so the planner forfeits the remaining movement.
+    assert.equal(moved.status, "blocked");
+    assert.equal(moved.movementRemaining, 0);
+
+    const undone = undoMovementPlanPosition(moved);
+
+    assert.equal(undone.status, "planning");
+    assert.deepEqual(undone.position, start);
+    assert.deepEqual(undone.history, [start]);
+    assert.equal(undone.movementRemaining, 3);
+    assert.equal(undone.laneChangesRemaining, 2);
+    assert.ok(undone.legalNextPositions.length > 0);
+});
+
+test("undoing a completed route reopens planning", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 0
+    });
+
+    const completed = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 1 }
+    );
+
+    assert.equal(completed.status, "complete");
+    assert.equal(completed.movementRemaining, 0);
+
+    const undone = undoMovementPlanPosition(completed);
+
+    assert.equal(undone.status, "planning");
+    assert.deepEqual(undone.position, start);
+    assert.deepEqual(undone.history, [start]);
+    assert.equal(undone.movementRemaining, 1);
+    assert.ok(undone.legalNextPositions.length > 0);
+});
+
+test("undo rejects a malformed plan without an array history", () => {
+    assert.throws(
+        () => undoMovementPlanPosition({
+            status: "planning",
+            history: null,
+            steps: []
+        }),
+        /route choice|history|plan/i
+    );
+});
+
+test("validation rejects a route with a tampered lane-change balance", () => {
+    const plan = makePlan({
+        movementAllowance: 1,
+        laneChangeAllowance: 2
+    });
+
+    const completed = chooseMovementPlanPosition(
+        plan,
+        { section: 11, lane: 2 }
+    );
+
+    const tamperedPlan = {
+        ...completed,
+        laneChangesRemaining: 2
+    };
+
+    const result = validateMovementPlan(tamperedPlan, []);
+
+    assert.equal(result.valid, false);
+    assert.match(result.reason, /allowance|movement/i);
+});

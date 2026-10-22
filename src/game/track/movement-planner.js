@@ -263,32 +263,95 @@ function chooseMovementPlanPosition(plan, targetPosition) {
 
 /**
  * Removes the last planned step and restores its movement costs.
+ *
+ * When a route becomes blocked, the planner sets movementRemaining
+ * to zero because the car forfeits the rest of its movement.
+ * Undo must therefore recalculate the remaining allowances from the
+ * original allowances and the steps that remain in the route.
+ *
  * The original plan remains unchanged.
  */
 function undoMovementPlanPosition(plan) {
-    if (!plan || plan.history.length <= 1) {
+    // Validate the plan structure before reading nested properties.
+    if (
+        !plan ||
+        typeof plan !== "object" ||
+        !Array.isArray(plan.history) ||
+        !Array.isArray(plan.steps)
+    ) {
+        throw new Error(
+            "A valid movement plan with route history and steps is required."
+        );
+    }
+
+    if (plan.history.length <= 1) {
         throw new Error("There is no route choice available to undo.");
     }
 
-    const removedStep = plan.steps[plan.steps.length - 1];
+    // Every recorded step must correspond to one history transition.
+    if (plan.steps.length !== plan.history.length - 1) {
+        throw new Error(
+            "The route history and steps are inconsistent."
+        );
+    }
+
+    if (
+        !Number.isInteger(plan.movementAllowance) ||
+        plan.movementAllowance < 0 ||
+        !Number.isInteger(plan.laneChangeAllowance) ||
+        plan.laneChangeAllowance < 0 ||
+        !plan.steps.every(step =>
+            step &&
+            typeof step === "object" &&
+            step.movementCost === 1 &&
+            Number.isInteger(step.laneChangeCost) &&
+            step.laneChangeCost >= 0
+        )
+    ) {
+        throw new Error(
+            "The movement plan contains invalid allowances or route steps."
+        );
+    }
+
     const nextHistory = plan.history.slice(0, -1);
     const nextSteps = plan.steps.slice(0, -1);
     const previousPosition = nextHistory[nextHistory.length - 1];
+
+    // Recalculate from the route that remains. This also restores movement
+    // that was forfeited when the original plan became blocked.
+    const movementSpent = nextSteps.reduce(
+        (total, step) => total + step.movementCost,
+        0
+    );
+
+    const laneChangesSpent = nextSteps.reduce(
+        (total, step) => total + step.laneChangeCost,
+        0
+    );
+
+    const movementRemaining = plan.movementAllowance - movementSpent;
+    const laneChangesRemaining =
+        plan.laneChangeAllowance - laneChangesSpent;
+
+    if (movementRemaining < 0 || laneChangesRemaining < 0) {
+        throw new Error(
+            "The remaining route exceeds its movement allowances."
+        );
+    }
 
     return createPlanState({
         position: previousPosition,
         history: nextHistory,
         steps: nextSteps,
-        movementRemaining:
-            plan.movementRemaining + removedStep.movementCost,
-        laneChangesRemaining:
-            plan.laneChangesRemaining + removedStep.laneChangeCost,
+        movementRemaining,
+        laneChangesRemaining,
         movementAllowance: plan.movementAllowance,
         laneChangeAllowance: plan.laneChangeAllowance,
         occupiedPositions: plan.occupiedPositions,
         status: "planning"
     });
 }
+
 
 /**
  * Checks that a route is complete, internally consistent, and based on
