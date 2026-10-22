@@ -51,9 +51,10 @@ function makeSeason(overrides = {}) {
     });
 }
 
-function startQualifyingSeason(playerCount = 2) {
+function startQualifyingSeason(playerCount = 2, eventCount = 5) {
     const season = makeSeason({
-        players: makePlayers(playerCount)
+        players: makePlayers(playerCount),
+        eventCount
     });
 
     const playerIds = season.players.map((player) => player.id);
@@ -1586,4 +1587,166 @@ test("championship standings do not mutate points or event history", () => {
 
     assert.deepEqual(season.seasonPoints, pointsBefore);
     assert.equal(JSON.stringify(season.eventHistory), historyBefore);
+});
+
+
+test("championship standings accumulate across a complete multi-event season", () => {
+    // Use a short, two-event season so the entire championship lifecycle
+    // can be verified in one integration test.
+    const { season, event: firstEvent } = startQualifyingSeason(2, 2);
+
+    // Run one complete event using the same public methods used by the
+    // other season tests. This deliberately avoids manually editing
+    // championship points or event history.
+    function finishCurrentEvent(event) {
+        completeQualifying(season, event);
+
+        season.createHeatLineups();
+
+        for (let heatNumber = 1; heatNumber <= 4; heatNumber++) {
+            const heat = season.currentEvent.heatLineups[heatNumber - 1];
+
+            season.recordHeatResults(
+                heatNumber,
+                heat.entries.map((entry) => ({
+                    carId: entry.carId,
+                    statusAtFinish: "running"
+                }))
+            );
+        }
+
+        const bMain = season.createBMainLineup();
+
+        season.recordBMainResults(
+            bMain.entries.map((entry) => ({
+                carId: entry.carId,
+                statusAtFinish: "running"
+            }))
+        );
+
+        const aMain = season.createAMainLineup();
+
+        season.recordAMainResults(
+            aMain.entries.map((entry) => ({
+                carId: entry.carId,
+                statusAtFinish: "running"
+            }))
+        );
+
+        return season.recordEventStandings();
+    }
+
+    // Complete Event 1 and capture its official championship points.
+    const firstStandings = finishCurrentEvent(firstEvent);
+    const firstPoints = { ...season.seasonPoints };
+    const firstWinner = season.eventHistory[0].aMainResults.find(
+        (result) => result.finishingPosition === 1
+    );
+
+    assert.ok(firstWinner, "Event 1 should have an A-main winner");
+    assert.equal(season.eventHistory.length, 1);
+    assert.equal(season.currentEvent.phase, "complete");
+    assert.equal(season.isComplete, false);
+
+    // Championship standings should reflect the first event immediately.
+    const standingsAfterFirstEvent = season.getChampionshipStandings();
+    const firstWinnerStanding = standingsAfterFirstEvent.find(
+        (standing) => standing.carId === firstWinner.carId
+    );
+
+    assert.equal(firstWinnerStanding.aMainWins, 1);
+    assert.equal(firstWinnerStanding.latestEventFinish, 1);
+    assert.equal(
+        firstWinnerStanding.points,
+        season.seasonPoints[firstWinner.carId]
+    );
+
+    // Event 2 must wait for both players to ready up.
+    const firstReady = season.markPlayerReadyForNextEvent("player-1");
+
+    assert.equal(firstReady.allPlayersReady, false);
+    assert.equal(season.currentEventNumber, 1);
+
+    const secondReady = season.markPlayerReadyForNextEvent("player-2");
+
+    assert.equal(secondReady.allPlayersReady, true);
+    assert.equal(secondReady.nextEvent.eventNumber, 2);
+    assert.equal(season.eventHistory.length, 1);
+
+    // Finish Event 2 through the normal season lifecycle.
+    const secondStandings = finishCurrentEvent(secondReady.nextEvent);
+
+    assert.equal(season.eventHistory.length, 2);
+    assert.equal(season.eventHistory[0].eventNumber, 1);
+    assert.equal(season.eventHistory[1].eventNumber, 2);
+    assert.equal(season.currentEvent.phase, "complete");
+    assert.equal(season.currentEventNumber, 2);
+    assert.equal(season.isComplete, true);
+
+    // Every car's championship total must equal the points earned
+    // across both official event standings.
+    const expectedPoints = {};
+
+    for (const car of season.cars) {
+        expectedPoints[car.id] =
+            (firstStandings.find((result) => result.carId === car.id)?.points ?? 0) +
+            (secondStandings.find((result) => result.carId === car.id)?.points ?? 0);
+    }
+
+    assert.deepEqual(season.seasonPoints, expectedPoints);
+
+    // The leaderboard must report the accumulated points and A-main
+    // statistics from the saved event history.
+    const championship = season.getChampionshipStandings();
+
+    assert.equal(championship.length, 32);
+
+    for (const standing of championship) {
+        assert.equal(
+            standing.points,
+            expectedPoints[standing.carId],
+            `Championship points should accumulate for car ${standing.carId}`
+        );
+
+        const aMainFinishes = season.eventHistory.flatMap(
+            (history) => history.aMainResults
+        ).filter((result) => result.carId === standing.carId);
+
+        assert.equal(
+            standing.aMainWins,
+            aMainFinishes.filter((result) => result.finishingPosition === 1).length
+        );
+
+        assert.equal(
+            standing.aMainTopFiveFinishes,
+            aMainFinishes.filter((result) => result.finishingPosition <= 5).length
+        );
+
+        assert.equal(
+            standing.aMainTopTenFinishes,
+            aMainFinishes.filter((result) => result.finishingPosition <= 10).length
+        );
+    }
+
+    // Reading the leaderboard must not change the stored championship.
+    assert.deepEqual(season.seasonPoints, expectedPoints);
+    assert.equal(season.eventHistory.length, 2);
+
+    // Advancing beyond the scheduled final event must not be possible.
+    assert.throws(
+        () => season.startNextEvent(),
+        /complete|final|event/i
+    );
+
+    // Keep the first-event snapshot available as a regression check:
+    // Event 2 must not retroactively change the points earned in Event 1.
+    for (const [carId, points] of Object.entries(firstPoints)) {
+        assert.equal(
+            firstStandings.find((result) => result.carId === carId)?.points ?? 0,
+            points === 0
+                ? 0
+                : firstStandings.find((result) => result.carId === carId)?.points,
+            `Event 1 standings should remain unchanged for car ${carId}`
+        );
+    }
 });
