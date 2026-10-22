@@ -22,6 +22,44 @@ function makeCar(carId, section, lane = 2, status = CAR_STATUSES.RUNNING) {
     };
 }
 
+test("rejects non-array race cars when an explicit order is supplied", () => {
+    assert.throws(
+        () => createTurnRound(null, ["car-a"]),
+        /Race cars must be provided as an array/
+    );
+});
+
+test("rejects a non-array explicit turn order with a clear error", () => {
+    assert.throws(
+        () => createTurnRound([makeCar("car-a", 5)], "car-a"),
+        /Turn order must be provided as an array/
+    );
+});
+
+test("does not allow an explicit order to bypass duplicate car ID validation", () => {
+    const cars = [
+        makeCar("car-a", 5),
+        makeCar("car-a", 10)
+    ];
+
+    assert.throws(
+        () => createTurnRound(cars, ["car-a"]),
+        /Duplicate race car ID/
+    );
+});
+
+test("does not allow an explicit order to bypass occupied position validation", () => {
+    const cars = [
+        makeCar("car-a", 5, 2),
+        makeCar("car-b", 5, 2)
+    ];
+
+    assert.throws(
+        () => createTurnRound(cars, ["car-a", "car-b"]),
+        /same track position/
+    );
+});
+
 test("creates a round in race-running order", () => {
     const cars = [
         makeCar("car-a", 5),

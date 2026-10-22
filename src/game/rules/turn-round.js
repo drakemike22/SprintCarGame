@@ -40,17 +40,27 @@ function validateRound(round) {
 }
 
 function createTurnRound(raceCars, explicitOrder = null) {
-    // Normal rounds calculate order from laps, track sections,
-    // and lanes. A yellow restart can supply its own lineup.
-    const order = explicitOrder === null
-        ? getTurnOrder(raceCars).map((raceCar) => raceCar.carId)
-        : [...explicitOrder];
+    // Validate the race-car collection before attempting to read it.
+    if (!Array.isArray(raceCars)) {
+        throw new Error("Race cars must be provided as an array.");
+    }
 
-    if (!Array.isArray(order)) {
+    // Validate a custom lineup before attempting to copy it.
+    if (explicitOrder !== null && !Array.isArray(explicitOrder)) {
         throw new Error("Turn order must be provided as an array.");
     }
 
-    // An explicit order must contain every running car exactly once.
+    // Always validate race-order invariants, even when a custom
+    // lineup is supplied. The custom lineup may change turn order,
+    // but it must not bypass race-car validation.
+    const normalOrder = getTurnOrder(raceCars)
+        .map((raceCar) => raceCar.carId);
+
+    const order = explicitOrder === null
+        ? normalOrder
+        : [...explicitOrder];
+
+    // A custom order must include every running car exactly once.
     const runningCarIds = raceCars
         .filter((raceCar) => raceCar.status === "running")
         .map((raceCar) => raceCar.carId);
