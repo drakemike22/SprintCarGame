@@ -23,13 +23,79 @@
  * or modify the Season object.
  */
 
-function requireResults(results, description) {
+
+/*
+ * Validate the result records for one race.
+ *
+ * A car may legitimately appear in different stages of the same
+ * event, such as a heat and the A Main. Within one individual race,
+ * however, each car and each finishing position must be unique.
+ *
+ * We validate the finishing positions but do not sort the results:
+ * the supplied array remains the official finishing order.
+ */
+function validateRaceResults(results, description, draftedIds) {
     if (!Array.isArray(results)) {
         throw new Error(`${description} must be an array.`);
     }
 
+    const seenCarIds = new Set();
+    const seenFinishingPositions = new Set();
+
+    for (const result of results) {
+        if (
+            !result ||
+            typeof result !== "object" ||
+            Array.isArray(result)
+        ) {
+            throw new Error(
+                `${description} contain an invalid result record.`
+            );
+        }
+
+        if (
+            typeof result.carId !== "string" ||
+            result.carId.trim() === ""
+        ) {
+            throw new Error(
+                `${description} contain an invalid car ID.`
+            );
+        }
+
+        if (!draftedIds.has(result.carId)) {
+            throw new Error(
+                `${description} contain car "${result.carId}" that was not drafted.`
+            );
+        }
+
+        if (seenCarIds.has(result.carId)) {
+            throw new Error(
+                `${description} contain duplicate results for car "${result.carId}".`
+            );
+        }
+
+        if (
+            !Number.isInteger(result.finishingPosition) ||
+            result.finishingPosition < 1
+        ) {
+            throw new Error(
+                `${description} finishing position for car "${result.carId}" must be a positive integer.`
+            );
+        }
+
+        if (seenFinishingPositions.has(result.finishingPosition)) {
+            throw new Error(
+                `${description} contain duplicate finishing position ${result.finishingPosition}.`
+            );
+        }
+
+        seenCarIds.add(result.carId);
+        seenFinishingPositions.add(result.finishingPosition);
+    }
+
     return results;
 }
+
 
 /*
  * Race progress may be absent in older result records. Use zero only
@@ -175,10 +241,20 @@ function buildEventStandings({
         throw new Error("Drafted car IDs must be unique.");
     }
 
-    requireResults(qualifyingResults, "Qualifying results");
-    requireResults(heatResults, "Heat results");
-    requireResults(bMainResults, "B-main results");
-    requireResults(aMainResults, "A-main results");
+    // Qualifying has its own validation for distance and qualifying order.
+    if (!Array.isArray(qualifyingResults)) {
+        throw new Error("Qualifying results must be an array.");
+    }
+
+    if (!Array.isArray(heatResults)) {
+        throw new Error("Heat results must be an array.");
+    }
+
+    const draftedIds = new Set(draftedCarIds);
+
+    // Validate every main race before using its results for standings.
+    validateRaceResults(bMainResults, "B-main results", draftedIds);
+    validateRaceResults(aMainResults, "A-main results", draftedIds);
 
     
     // The event has exactly four heats, numbered 1 through 4.
@@ -200,6 +276,11 @@ function buildEventStandings({
                 "Each heat must have a heat number and a results array."
             );
         }
+        validateRaceResults(
+            heat.results,
+            `Heat ${heat.heatNumber} results`,
+            draftedIds
+        );
 
         heatNumbers.add(heat.heatNumber);
     }
@@ -218,9 +299,6 @@ function buildEventStandings({
             "Heat results must contain four distinct heats numbered 1 through 4."
         );
     }
-
-
-    const draftedIds = new Set(draftedCarIds);
     const qualifyingOrder = buildQualifyingOrder(
         qualifyingResults,
         draftedIds

@@ -276,3 +276,54 @@ test("duplicate heat numbers are rejected", () => {
         /distinct heats numbered 1 through 4/
     );
 });
+
+
+test("invalid race-result records are rejected", () => {
+    const input = createExampleEvent();
+    input.aMainResults[0] = null;
+
+    assert.throws(
+        () => buildEventStandings(input),
+        /invalid|result/i
+    );
+});
+
+test("invalid race finishing positions are rejected", () => {
+    const invalidPositions = [0, -1, 1.5, NaN, undefined];
+
+    for (const finishingPosition of invalidPositions) {
+        const input = createExampleEvent();
+        input.aMainResults[0].finishingPosition = finishingPosition;
+
+        assert.throws(
+            () => buildEventStandings(input),
+            /finishing position/i,
+            `Expected position ${String(finishingPosition)} to be rejected`
+        );
+    }
+});
+
+test("duplicate race finishing positions are rejected", () => {
+    const input = createExampleEvent();
+    input.aMainResults[1].finishingPosition =
+        input.aMainResults[0].finishingPosition;
+
+    assert.throws(
+        () => buildEventStandings(input),
+        /finishing position/i
+    );
+});
+
+test("A-main ranking preserves official result-array order", () => {
+    const input = createExampleEvent();
+
+    // Deliberately make the numeric positions disagree with array order.
+    // The official result array remains the source of the ranking order.
+    input.aMainResults[0].finishingPosition = 2;
+    input.aMainResults[1].finishingPosition = 1;
+
+    const standings = buildEventStandings(input);
+
+    assert.equal(standings[0].carId, input.aMainResults[0].carId);
+    assert.equal(standings[1].carId, input.aMainResults[1].carId);
+});
