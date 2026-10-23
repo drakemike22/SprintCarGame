@@ -549,3 +549,140 @@ test("active race turn occupancy excludes cars that are no longer running", () =
 
     assert.deepEqual(turn.movementPlan.occupiedPositions, []);
 });
+
+test("season can restart an active race after a yellow flag", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
+
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+
+    season.startActiveRaceTurn({
+        movementDie: 2,
+        laneChangeDie: 2,
+        eventDie: 2
+    });
+
+    // Finish the planned movement before applying the wreck and yellow flag.
+    let turn = season.currentEvent.activeRace.currentTurn;
+    let safetySteps = 0;
+
+    while (turn.movementPlan.status === "planning") {
+        const currentPosition = turn.movementPlan.position;
+
+        season.chooseActiveRaceTurnPosition({
+            section: (currentPosition.section + 1) % 30,
+            lane: currentPosition.lane
+        });
+
+        turn = season.currentEvent.activeRace.currentTurn;
+        safetySteps += 1;
+
+        assert.ok(
+            safetySteps <= 30,
+            "Movement planning should finish within one lap."
+        );
+    }
+    season.resolveActiveRaceWreckSpinner(4);
+    season.applyActiveRaceTurn();
+
+    assert.equal(race.status, "yellow-flag");
+    assert.equal(race.yellowFlag, true);
+    assert.equal(
+        season.currentEvent.activeRace.currentTurn,
+        null
+    );
+
+    const restartedRace = season.restartActiveRaceAfterYellow();
+
+    assert.equal(restartedRace, race);
+    assert.equal(race.status, "running");
+    assert.equal(race.yellowFlag, false);
+    assert.deepEqual(race.yellowFlagCarsToBack, []);
+
+    const runningCars = race.raceCars.filter(
+        raceCar => raceCar.status === CAR_STATUSES.RUNNING
+    );
+
+    assert.ok(runningCars.length > 0);
+
+    for (const raceCar of runningCars) {
+        assert.equal(raceCar.position.lane, 2);
+    }
+
+    assert.equal(
+        race.round.order.length,
+        runningCars.length
+    );
+});
+
+test("season cannot restart a race that is not under a yellow flag", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
+
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+    const originalRound = race.round;
+    const originalPositions = race.raceCars.map(
+        raceCar => ({ ...raceCar.position })
+    );
+
+    assert.throws(
+        () => season.restartActiveRaceAfterYellow(),
+        /stopped for a yellow flag/
+    );
+
+    assert.equal(race.status, "running");
+    assert.equal(race.yellowFlag, false);
+    assert.equal(race.round, originalRound);
+    assert.deepEqual(
+        race.raceCars.map(raceCar => raceCar.position),
+        originalPositions
+    );
+});

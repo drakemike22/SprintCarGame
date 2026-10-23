@@ -40,7 +40,8 @@ const { RaceCar } = require("../data/race-car");
 const {
     createRaceState,
     getCurrentRaceCar,
-    applyCompletedRaceTurn
+    applyCompletedRaceTurn,
+    restartRaceAfterYellow
 } = require("../rules/race-coordinator");
 
 const {
@@ -1018,6 +1019,17 @@ class Season {
         raceRecord.currentTurn = null;
 
         return updatedRaceState;
+    }
+    /*
+     * Restarts the active race after a yellow flag.
+     *
+     * The race coordinator validates that the race is stopped
+     * for a yellow flag and handles the restart order and positions.
+     */
+    restartActiveRaceAfterYellow() {
+        const raceRecord = this._getActiveRaceRecord();
+
+        return restartRaceAfterYellow(raceRecord.state);
     }
 
     /*
