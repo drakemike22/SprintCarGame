@@ -429,7 +429,103 @@ test("active race turn plans movement without changing the live position", () =>
         /already has a pending turn/
     );
 });
+test("undoing an active race movement restores the pending turn without moving the live car", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
 
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+    const liveCar = race.raceCars.find(
+        (car) => car.carId === "car-a"
+    );
+    const originalLivePosition = { ...liveCar.position };
+
+    const initialTurn = season.startActiveRaceTurn({
+        movementDie: 1,
+        laneChangeDie: 2,
+        eventDie: 3
+    });
+
+    const initialPosition = { ...initialTurn.position };
+    const initialMovementRemaining = initialTurn.movementRemaining;
+    const initialLaneChangesRemaining =
+        initialTurn.laneChangesRemaining;
+
+    // Select a legal space, then undo that movement choice.
+    const chosenPosition = initialTurn.legalNextPositions[0];
+
+    assert.ok(
+        chosenPosition,
+        "The initial movement plan should offer a legal next space."
+    );
+
+    const chosenTurn = season.chooseActiveRaceTurnPosition(
+        chosenPosition
+    );
+
+    assert.deepEqual(chosenTurn.position, chosenPosition);
+    assert.notDeepEqual(chosenTurn.position, initialPosition);
+
+    // The live car remains stationary while movement is being planned.
+    assert.deepEqual(liveCar.position, originalLivePosition);
+
+    const undoneTurn = season.undoActiveRaceTurnPosition();
+
+    // Undo restores the pending turn's movement state.
+    assert.equal(undoneTurn.status, "waiting-for-choice");
+    assert.deepEqual(undoneTurn.position, initialPosition);
+    assert.deepEqual(undoneTurn.history, [initialPosition]);
+    assert.equal(
+        undoneTurn.movementRemaining,
+        initialMovementRemaining
+    );
+    assert.equal(
+        undoneTurn.laneChangesRemaining,
+        initialLaneChangesRemaining
+    );
+
+    // The Season stores the updated turn returned by the undo operation.
+    assert.equal(
+        season.currentEvent.activeRace.currentTurn,
+        undoneTurn
+    );
+
+    // Dice and event processing remain pending.
+    assert.deepEqual(undoneTurn.dice, {
+        movement: 1,
+        laneChange: 2,
+        event: 3
+    });
+    assert.equal(undoneTurn.eventResolution.status, "pending");
+    assert.equal(undoneTurn.mechanicalWheel.status, "pending");
+    assert.equal(undoneTurn.wreckWheel.status, "pending");
+
+    // Neither choosing nor undoing a planned move changes the live car.
+    assert.deepEqual(liveCar.position, originalLivePosition);
+});
 test("applying an active race turn advances the live race and clears the pending turn", () => {
     const season = makeSeasonWithEvent({
         phase: "heats",
