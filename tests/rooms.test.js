@@ -241,3 +241,107 @@ test("readiness cannot be changed after a room starts", () => {
         "ROOM_ALREADY_STARTED"
     );
 });
+test("room settings default to four players and five season events", () => {
+    const manager = new RoomManager();
+    const result = manager.createRoom("Host");
+
+    assert.equal(result.room.maxPlayers, 4);
+    assert.equal(result.room.seasonEvents, 5);
+});
+
+test("a room stores its selected player limit and season length", () => {
+    const manager = new RoomManager();
+    const result = manager.createRoom("Host", {
+        maxPlayers: 3,
+        seasonEvents: 12
+    });
+
+    assert.equal(result.room.maxPlayers, 3);
+    assert.equal(result.room.seasonEvents, 12);
+});
+
+test("room settings are included in snapshots for every member", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host", {
+        maxPlayers: 2,
+        seasonEvents: 7
+    });
+    const guest = manager.joinRoom(host.room.code, "Guest");
+
+    assert.equal(guest.room.maxPlayers, 2);
+    assert.equal(guest.room.seasonEvents, 7);
+});
+
+test("a two-player room rejects a third player", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host", { maxPlayers: 2 });
+
+    manager.joinRoom(host.room.code, "Guest");
+
+    expectRoomError(
+        () => manager.joinRoom(host.room.code, "Late Player"),
+        "ROOM_FULL"
+    );
+});
+
+test("a three-player room rejects a fourth player", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host", { maxPlayers: 3 });
+
+    manager.joinRoom(host.room.code, "Driver 2");
+    manager.joinRoom(host.room.code, "Driver 3");
+
+    const fullRoom = manager.getRoom(host.room.code, host.playerId);
+    assert.equal(fullRoom.playerCount, 3);
+    assert.equal(fullRoom.maxPlayers, 3);
+
+    expectRoomError(
+        () => manager.joinRoom(host.room.code, "Driver 4"),
+        "ROOM_FULL"
+    );
+});
+
+test("a four-player room still supports four players", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host", { maxPlayers: 4 });
+
+    manager.joinRoom(host.room.code, "Driver 2");
+    manager.joinRoom(host.room.code, "Driver 3");
+    const fourth = manager.joinRoom(host.room.code, "Driver 4");
+
+    assert.equal(fourth.room.playerCount, 4);
+    assert.equal(fourth.room.maxPlayers, 4);
+});
+
+test("invalid player limits are rejected", () => {
+    const manager = new RoomManager();
+
+    for (const maxPlayers of [1, 5, 2.5, "3", null]) {
+        expectRoomError(
+            () => manager.createRoom("Host", { maxPlayers }),
+            "INVALID_MAX_PLAYERS"
+        );
+    }
+});
+
+test("invalid season lengths are rejected", () => {
+    const manager = new RoomManager();
+
+    for (const seasonEvents of [0, 21, 2.5, "5", null]) {
+        expectRoomError(
+            () => manager.createRoom("Host", { seasonEvents }),
+            "INVALID_SEASON_EVENTS"
+        );
+    }
+});
+
+test("non-object room settings are rejected", () => {
+    const manager = new RoomManager();
+
+    for (const settings of [null, "settings", 5, []]) {
+        expectRoomError(
+            () => manager.createRoom("Host", settings),
+            "INVALID_ROOM_SETTINGS"
+        );
+    }
+});

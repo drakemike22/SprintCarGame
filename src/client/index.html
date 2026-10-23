@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta
         name="description"
-        content="A turn-based dirt-track sprint car racing game for friends."
+        content="Create and join multiplayer dirt-track sprint car racing seasons."
     >
     <meta name="theme-color" content="#171916">
     <title>Sprint Car Showdown</title>
@@ -15,7 +16,7 @@
 <body>
     <div class="page-shell">
         <header class="site-header">
-            <a class="brand" href="/" aria-label="Sprint Car Showdown home">
+            <a class="brand" href="#home" aria-label="Sprint Car Showdown home">
                 <span class="brand-mark" aria-hidden="true">SC</span>
                 <span class="brand-copy">
                     <span class="brand-name">SPRINT CAR</span>
@@ -23,75 +24,39 @@
                 </span>
             </a>
 
-            <div class="header-status">
-                <span class="status-dot" aria-hidden="true"></span>
-                <span>LOCAL BUILD</span>
-            </div>
+            <nav class="main-navigation" aria-label="Main navigation">
+                <a class="nav-link active" href="#home" data-page="home"
+                   aria-current="page">Home</a>
+                <a class="nav-link" href="#my-games" data-page="my-games">My Games</a>
+                <a class="nav-link" href="#tutorial" data-page="tutorial">Tutorial</a>
+                <a class="nav-link" href="#profile" data-page="profile">Profile</a>
+            </nav>
         </header>
 
         <main>
-            <section class="hero" aria-labelledby="hero-title">
-                <div class="hero-copy">
-                    <p class="eyebrow">
-                        <span class="eyebrow-line" aria-hidden="true"></span>
-                        DIRT TRACK. BIG MOMENTS.
+            <!-- Home: create a new room or join a friend's room. -->
+            <section class="page-section" id="page-home" data-page-section="home"
+                     aria-labelledby="home-title">
+                <div class="welcome-heading">
+                    <p class="eyebrow">YOUR NEXT SEASON STARTS HERE</p>
+                    <h1 id="home-title">Welcome to the <span>Showdown.</span></h1>
+                    <p>
+                        Start a new game with your friends or join a season
+                        using their room code.
                     </p>
-
-                    <h1 id="hero-title">
-                        EVERY TURN<br>
-                        <span>COUNTS.</span>
-                    </h1>
-
-                    <p class="hero-description">
-                        Build your lineup, roll the dice, and battle your
-                        friends for dirt-track glory. Every decision can
-                        change the race.
-                    </p>
-
-                    <div class="hero-tags" aria-label="Game features">
-                        <span>2–4 PLAYERS</span>
-                        <span class="tag-divider" aria-hidden="true"></span>
-                        <span>TURN-BASED RACING</span>
-                        <span class="tag-divider" aria-hidden="true"></span>
-                        <span>FRIENDLY COMPETITION</span>
-                    </div>
-                </div>
-
-                <div class="hero-art" aria-label="Sprint car racing artwork">
-                    <div class="art-glow" aria-hidden="true"></div>
-                    <div class="art-speed-lines" aria-hidden="true"></div>
-
-                    <div class="art-number" aria-hidden="true">32</div>
-
-                    <div class="art-caption">
-                        <span class="caption-label">THE GREEN FLAG IS COMING</span>
-                        <span class="caption-title">OWN THE TRACK.</span>
-                    </div>
-
-                    <div class="art-stripe" aria-hidden="true"></div>
-                </div>
-            </section>
-
-            <section class="game-entry" aria-labelledby="entry-title">
-                <div class="section-heading">
-                    <div>
-                        <p class="eyebrow">YOUR NEXT RACE STARTS HERE</p>
-                        <h2 id="entry-title">GET ON THE GRID</h2>
-                    </div>
-                    <span class="build-label">FOUNDATION BUILD</span>
                 </div>
 
                 <div class="entry-grid">
                     <article class="entry-card create-card">
                         <div class="card-topline">
                             <span class="card-icon" aria-hidden="true">01</span>
-                            <span class="card-kicker">HOST A RACE</span>
+                            <span class="card-kicker">NEW GAME</span>
                         </div>
 
-                        <h3>Bring the crew.</h3>
+                        <h2>Create a Game</h2>
                         <p>
-                            Start a private room, enter your owner name,
-                            and get your friends ready to race.
+                            Host a season, invite your friends, and build
+                            your championship-winning stable.
                         </p>
 
                         <label for="owner-name-create">YOUR OWNER NAME</label>
@@ -104,26 +69,53 @@
                             autocomplete="nickname"
                         >
 
-                        <button
-                            class="button button-primary"
-                            id="create-game"
-                            type="button"
-                        >
+                        <label for="max-players">PLAYER COUNT</label>
+                        <select id="max-players" name="max-players">
+                            <option value="2">2 Players</option>
+                            <option value="3">3 Players</option>
+                            <option value="4" selected>4 Players</option>
+                        </select>
+
+                        <label for="season-events">SEASON LENGTH</label>
+                        <select id="season-events" name="season-events">
+                            <option value="1">1 Event</option>
+                            <option value="2">2 Events</option>
+                            <option value="3">3 Events</option>
+                            <option value="4">4 Events</option>
+                            <option value="5" selected>5 Events</option>
+                            <option value="6">6 Events</option>
+                            <option value="7">7 Events</option>
+                            <option value="8">8 Events</option>
+                            <option value="9">9 Events</option>
+                            <option value="10">10 Events</option>
+                            <option value="11">11 Events</option>
+                            <option value="12">12 Events</option>
+                            <option value="13">13 Events</option>
+                            <option value="14">14 Events</option>
+                            <option value="15">15 Events</option>
+                            <option value="16">16 Events</option>
+                            <option value="17">17 Events</option>
+                            <option value="18">18 Events</option>
+                            <option value="19">19 Events</option>
+                            <option value="20">20 Events</option>
+                        </select>
+
+                        <button class="button button-primary" id="create-game"
+                                type="button">
                             CREATE GAME
-                            <span aria-hidden="true">↗</span>
                         </button>
                     </article>
 
                     <article class="entry-card join-card">
                         <div class="card-topline">
                             <span class="card-icon" aria-hidden="true">02</span>
-                            <span class="card-kicker">JOIN YOUR FRIENDS</span>
+                            <span class="card-kicker">EXISTING GAME</span>
                         </div>
 
-                        <h3>Find your race.</h3>
+                        <h2>Join a Game</h2>
                         <p>
-                            Got a room code? Enter your owner name and
-                            the room code to line up on the track.
+                            Enter your owner name and the room code shared
+                            by the person hosting the game.
                         </p>
 
                         <label for="owner-name-join">YOUR OWNER NAME</label>
@@ -142,56 +134,125 @@
                             name="room-code"
                             type="text"
                             maxlength="8"
-                            placeholder="ENTER CODE"
+                            placeholder="ENTER SIX-CHARACTER CODE"
                             autocomplete="off"
                             autocapitalize="characters"
                         >
 
-                        <button
-                            class="button button-secondary"
-                            id="join-game"
-                            type="button"
-                        >
+                        <button class="button button-secondary" id="join-game"
+                                type="button">
                             JOIN GAME
-                            <span aria-hidden="true">→</span>
                         </button>
                     </article>
                 </div>
 
-                <p
-                    class="feedback-message"
-                    id="entry-feedback"
-                    role="status"
-                    aria-live="polite"
-                >
-                    Create a room or join an existing room with a room code.
+                <p class="feedback-message" id="entry-feedback"
+                   role="status" aria-live="polite">
+                    Create a game or join an existing game with a room code.
                 </p>
             </section>
 
-            <section class="race-notes" aria-label="Game overview">
-                <div class="note-item">
-                    <span class="note-number">01</span>
-                    <div>
-                        <h3>Build your stable</h3>
-                        <p>Draft your cars and prepare your season.</p>
-                    </div>
-                </div>
+            <!-- Waiting room for the host and invited players. -->
+            <section class="page-section placeholder-page lobby-page"
+                     id="page-lobby" data-page-section="lobby"
+                     aria-labelledby="lobby-title" hidden>
+                <p class="eyebrow">YOUR RACE WEEKEND STARTS HERE</p>
+                <h1 id="lobby-title">Game Lobby</h1>
+                <p>
+                    Share your room code with your friends. Everyone must
+                    be ready before the host can start the season.
+                </p>
 
-                <div class="note-item">
-                    <span class="note-number">02</span>
-                    <div>
-                        <h3>Race your way</h3>
-                        <p>Roll, choose your line, and manage risk.</p>
+                <div class="lobby-panel">
+                    <div class="lobby-room-code">
+                        <span class="lobby-label">ROOM CODE</span>
+                        <strong id="lobby-room-code">------</strong>
+                        <button class="button button-secondary"
+                                id="copy-room-code" type="button">
+                            COPY CODE
+                        </button>
                     </div>
-                </div>
 
-                <div class="note-item">
-                    <span class="note-number">03</span>
-                    <div>
-                        <h3>Chase the title</h3>
-                        <p>Earn points and fight for the championship.</p>
+                    <div class="lobby-settings" aria-label="Season settings">
+                        <div>
+                            <span class="lobby-label">PLAYERS</span>
+                            <strong id="lobby-player-count">0 / 4</strong>
+                        </div>
+                        <div>
+                            <span class="lobby-label">SEASON LENGTH</span>
+                            <strong id="lobby-season-events">5 Events</strong>
+                        </div>
+                        <div>
+                            <span class="lobby-label">ROOM STATUS</span>
+                            <strong id="lobby-status">Waiting</strong>
+                        </div>
+                    </div>
+
+                    <div class="lobby-player-section">
+                        <h2>Drivers in the Room</h2>
+                        <ul id="lobby-player-list" class="lobby-player-list">
+                            <li>Loading players...</li>
+                        </ul>
+                    </div>
+
+                    <p id="lobby-feedback" class="feedback-message"
+                       role="status" aria-live="polite"></p>
+
+                    <div class="lobby-actions">
+                        <button class="button button-primary"
+                                id="toggle-ready" type="button">
+                            I'M READY
+                        </button>
+                        <button class="button button-secondary"
+                                id="start-season" type="button" hidden>
+                            START SEASON
+                        </button>
+                        <button class="button button-secondary"
+                                id="leave-lobby" type="button">
+                            BACK TO HOME
+                        </button>
                     </div>
                 </div>
+            </section>
+
+            <!-- Placeholder until multiple persistent games are supported. -->
+            <section class="page-section placeholder-page" id="page-my-games"
+                     data-page-section="my-games" aria-labelledby="my-games-title"
+                     hidden>
+                <p class="eyebrow">YOUR RACING SEASONS</p>
+                <h1 id="my-games-title">My Games</h1>
+                <p>
+                    Your games with different friends will be collected here.
+                    You'll be able to select a game to return to its lobby
+                    or continue its season.
+                </p>
+                <span class="coming-soon">MULTIPLE GAMES â€” COMING SOON</span>
+            </section>
+
+            <!-- Tutorial content will be added with real gameplay examples. -->
+            <section class="page-section placeholder-page" id="page-tutorial"
+                     data-page-section="tutorial" aria-labelledby="tutorial-title"
+                     hidden>
+                <p class="eyebrow">LEARN THE GAME</p>
+                <h1 id="tutorial-title">Tutorial</h1>
+                <p>
+                    Learn how to draft cars, roll the dice, choose your line,
+                    survive race incidents, and compete for the championship.
+                </p>
+                <span class="coming-soon">GAMEPLAY GUIDES â€” COMING SOON</span>
+            </section>
+
+            <!-- Account details and historical results will come later. -->
+            <section class="page-section placeholder-page" id="page-profile"
+                     data-page-section="profile" aria-labelledby="profile-title"
+                     hidden>
+                <p class="eyebrow">YOUR RACING HISTORY</p>
+                <h1 id="profile-title">Profile</h1>
+                <p>
+                    Your account information, profile picture, past finishes,
+                    and championship history will live here.
+                </p>
+                <span class="coming-soon">PLAYER PROFILES â€” COMING SOON</span>
             </section>
         </main>
 

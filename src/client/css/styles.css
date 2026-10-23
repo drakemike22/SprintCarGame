@@ -806,3 +806,369 @@ a {
         transition-duration: 0.01ms !important;
     }
 }
+
+
+/* ---------- Main navigation and simplified pages ---------- */
+
+.site-header {
+    position: relative;
+    flex-wrap: wrap;
+    padding-block: 18px;
+}
+
+.main-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.nav-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 9px 15px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+    text-decoration: none;
+    transition:
+        color 150ms ease,
+        background 150ms ease,
+        border-color 150ms ease;
+}
+
+.nav-link:hover {
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.nav-link.active {
+    border-color: rgb(233 255 97 / 25%);
+    background: rgb(233 255 97 / 8%);
+    color: var(--accent);
+}
+
+.welcome-heading {
+    max-width: 760px;
+    margin-inline: auto;
+    padding-block: 58px 38px;
+    text-align: center;
+}
+
+.welcome-heading .eyebrow {
+    justify-content: center;
+    margin-bottom: 13px;
+}
+
+.welcome-heading h1,
+.placeholder-page h1 {
+    margin: 0;
+    font-size: clamp(34px, 5vw, 54px);
+    font-weight: 950;
+    letter-spacing: -0.065em;
+    line-height: 1.12;
+}
+
+.welcome-heading h1 span {
+    color: var(--accent);
+}
+
+.welcome-heading > p:last-child {
+    max-width: 550px;
+    margin: 17px auto 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+.entry-card h2 {
+    margin: 2px 0 8px;
+    font-size: 21px;
+    font-weight: 900;
+    letter-spacing: -0.035em;
+}
+
+.entry-card > p {
+    min-height: 0;
+}
+
+.page-section[hidden] {
+    display: none !important;
+}
+
+.placeholder-page {
+    max-width: 760px;
+    min-height: 420px;
+    margin-inline: auto;
+    padding-block: 90px 70px;
+}
+
+.placeholder-page .eyebrow {
+    margin-bottom: 14px;
+}
+
+.placeholder-page > p:not(.eyebrow) {
+    max-width: 600px;
+    margin-block: 18px 25px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.9;
+}
+
+.coming-soon {
+    display: inline-flex;
+    padding: 8px 12px;
+    border: 1px solid rgb(233 255 97 / 25%);
+    border-radius: 7px;
+    background: rgb(233 255 97 / 6%);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 850;
+    letter-spacing: 0.1em;
+}
+
+.site-footer {
+    margin-top: 26px;
+}
+
+/* Keep navigation comfortable on tablets and phones. */
+
+@media (max-width: 760px) {
+    .site-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .main-navigation {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 4px;
+    }
+
+    .nav-link {
+        flex: 1 1 auto;
+        padding-inline: 10px;
+    }
+
+    .welcome-heading {
+        padding-block: 42px 28px;
+    }
+
+    .placeholder-page {
+        min-height: 340px;
+        padding-block: 55px 45px;
+    }
+}
+
+@media (max-width: 420px) {
+    .main-navigation {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .nav-link {
+        width: 100%;
+    }
+
+    .welcome-heading h1 {
+        font-size: 35px;
+    }
+}
+
+/* Sprint Car Showdown: Lobby and room settings
+   ---------------------------------------------
+   Appended to preserve the existing website redesign. */
+
+.entry-card select {
+    display: block;
+    width: 100%;
+    min-height: 48px;
+    margin: 8px 0 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 10px;
+    background: var(--input-background, #111827);
+    color: inherit;
+    font: inherit;
+    color-scheme: dark;
+}
+
+.entry-card select:focus-visible,
+.lobby-actions button:focus-visible,
+.lobby-room-code button:focus-visible {
+    outline: 2px solid var(--accent-color, #38bdf8);
+    outline-offset: 3px;
+}
+
+.lobby-page {
+    width: min(100% - 32px, 900px);
+    margin-inline: auto;
+}
+
+.lobby-panel {
+    display: grid;
+    gap: 28px;
+    margin-top: 28px;
+    padding: clamp(18px, 4vw, 32px);
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 18px;
+    background: var(--card-background, #111827);
+    box-shadow: 0 16px 40px rgb(0 0 0 / 18%);
+}
+
+.lobby-room-code {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.lobby-label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--muted-color, #94a3b8);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.lobby-room-code strong {
+    overflow-wrap: anywhere;
+    font-size: clamp(1.8rem, 6vw, 2.8rem);
+    letter-spacing: 0.16em;
+}
+
+.lobby-room-code .lobby-label {
+    flex-basis: 100%;
+    margin-bottom: 0;
+}
+
+.lobby-room-code button {
+    margin-left: auto;
+}
+
+.lobby-settings {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.lobby-settings > div {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 12px;
+    background: rgb(255 255 255 / 3%);
+}
+
+.lobby-settings strong {
+    display: block;
+    overflow-wrap: anywhere;
+    font-size: 1.05rem;
+}
+
+.lobby-player-section h2 {
+    margin: 0 0 14px;
+}
+
+.lobby-player-list {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.lobby-player {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color, #334155);
+    border-radius: 12px;
+    background: rgb(255 255 255 / 3%);
+}
+
+.lobby-player-identity {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.lobby-player-identity strong {
+    overflow-wrap: anywhere;
+}
+
+.lobby-player-role {
+    color: var(--muted-color, #94a3b8);
+    font-size: 0.8rem;
+}
+
+.lobby-ready-status {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.lobby-ready-status.is-ready {
+    color: var(--success-color, #4ade80);
+}
+
+.lobby-ready-status.is-not-ready {
+    color: var(--muted-color, #94a3b8);
+}
+
+.lobby-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.lobby-actions button {
+    flex: 1 1 160px;
+}
+
+.lobby-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.lobby-page .feedback-message {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 600px) {
+    .lobby-settings {
+        grid-template-columns: 1fr;
+    }
+
+    .lobby-settings > div {
+        padding: 13px 15px;
+    }
+
+    .lobby-room-code button {
+        margin-left: 0;
+    }
+
+    .lobby-player {
+        align-items: flex-start;
+    }
+
+    .lobby-actions {
+        flex-direction: column;
+    }
+
+    .lobby-actions button {
+        width: 100%;
+    }
+}

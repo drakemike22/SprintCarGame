@@ -42,13 +42,23 @@ async function readJson(response) {
     return response.json();
 }
 
-async function createRoom(baseUrl, name = "Host") {
+/*
+ * Create a room through the public HTTP API.
+ *
+ * Settings are optional so existing tests continue to exercise
+ * the default room configuration unless they explicitly choose
+ * different values.
+ */
+async function createRoom(baseUrl, name = "Host", settings = {}) {
     const response = await fetch(`${baseUrl}/api/rooms`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json"
         },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({
+            name,
+            ...settings
+        })
     });
 
     return {
@@ -336,5 +346,39 @@ test("a player credential from one room cannot access another room", async () =>
 
         const data = await readJson(response);
         assert.equal(data.error.code, "PLAYER_NOT_IN_ROOM");
+    });
+});
+test("POST /api/rooms accepts custom player and season settings", async () => {
+    await withServer(async (baseUrl) => {
+        const { response, data } = await createRoom(baseUrl, "Host", {
+            maxPlayers: 3,
+            seasonEvents: 12
+        });
+
+        assert.equal(response.status, 201);
+        assert.equal(data.room.maxPlayers, 3);
+        assert.equal(data.room.seasonEvents, 12);
+    });
+});
+
+test("POST /api/rooms uses default player and season settings", async () => {
+    await withServer(async (baseUrl) => {
+        const { response, data } = await createRoom(baseUrl);
+
+        assert.equal(response.status, 201);
+        assert.equal(data.room.maxPlayers, 4);
+        assert.equal(data.room.seasonEvents, 5);
+    });
+});
+
+test("POST /api/rooms rejects invalid room settings", async () => {
+    await withServer(async (baseUrl) => {
+        const { response, data } = await createRoom(baseUrl, "Host", {
+            maxPlayers: 5,
+            seasonEvents: 12
+        });
+
+        assert.equal(response.status, 400);
+        assert.equal(data.error.code, "INVALID_MAX_PLAYERS");
     });
 });

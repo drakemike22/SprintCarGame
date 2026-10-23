@@ -201,9 +201,16 @@ async function handleApiRequest(request, response, url, roomManager) {
         const pathname = url.pathname;
 
         // POST /api/rooms — create a room and register the host.
+        //
+        // The room manager validates the optional settings. When omitted,
+        // its defaults are four players and five season events.
         if (method === "POST" && pathname === "/api/rooms") {
             const body = await readJsonBody(request);
-            const result = roomManager.createRoom(body.name);
+
+            const result = roomManager.createRoom(body.name, {
+                maxPlayers: body.maxPlayers,
+                seasonEvents: body.seasonEvents
+            });
 
             sendJson(response, 201, {
                 playerId: result.playerId,

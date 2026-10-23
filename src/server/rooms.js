@@ -1,3 +1,4 @@
+
 /*
  * Multiplayer Room Manager
  * ------------------------
@@ -5,14 +6,14 @@
  *
  * Responsibilities:
  * - Create private rooms with short invitation codes.
- * - Track the host and up to three additional players.
+ * - Track the host and room members.
+ * - Store validated game settings: player limit and season length.
  * - Give each player a server-generated credential.
  * - Validate room membership and host-only actions.
  * - Require every player to be ready before the host starts.
  *
- * This first version intentionally keeps rooms in memory. Restarting
- * the server clears all rooms; persistence and reconnect support will
- * be designed as separate, testable features.
+ * Rooms are held in memory. Restarting the server clears all rooms.
+ * Persistence and reconnect support will be separate features.
  */
 
 "use strict";
@@ -21,8 +22,16 @@ const crypto = require("node:crypto");
 
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
 const MIN_PLAYERS_TO_START = 2;
+const MIN_PLAYERS_PER_ROOM = 2;
 const MAX_PLAYERS_PER_ROOM = 4;
+
+const DEFAULT_MAX_PLAYERS = 4;
+const MIN_SEASON_EVENTS = 1;
+const MAX_SEASON_EVENTS = 20;
+const DEFAULT_SEASON_EVENTS = 5;
+
 const MAX_DRIVER_NAME_LENGTH = 20;
 
 class RoomError extends Error {
@@ -36,13 +45,13 @@ class RoomError extends Error {
 
 class RoomManager {
     constructor() {
-        // Room codes are the keys; room objects never leave this manager.
+        // Room codes are keys; internal room objects stay private.
         this.rooms = new Map();
     }
 
     /*
      * Generate an unpredictable invitation code.
-     * Characters that look alike, such as O/0 and I/1, are excluded.
+     * Similar-looking characters such as O/0 and I/1 are excluded.
      */
     generateRoomCode() {
         let code = "";
@@ -59,12 +68,17 @@ class RoomManager {
     }
 
     /*
-     * Create a room and register its creator as the host.
-     * The returned playerId is a secret bearer credential. Never include
-     * another player's credential in a public room snapshot.
+     * Create a room and register its creator as host.
+     *
+     * Existing callers may continue to pass only a name:
+     * createRoom("Host")
+     *
+     * Optional settings:
+     * createRoom("Host", { maxPlayers: 3, seasonEvents: 8 })
      */
-    createRoom(rawName) {
+    createRoom(rawName, rawSettings = {}) {
         const name = this.validateDriverName(rawName);
+        const settings = this.validateRoomSettings(rawSettings);
 
         let code;
         let attempts = 0;
@@ -89,6 +103,11 @@ class RoomManager {
             status: "waiting",
             hostPlayerId: playerId,
             createdAt: Date.now(),
+
+            // These settings are validated and controlled by the server.
+            maxPlayers: settings.maxPlayers,
+            seasonEvents: settings.seasonEvents,
+
             players: [
                 {
                     id: playerId,
@@ -108,7 +127,7 @@ class RoomManager {
 
     /*
      * Join an existing waiting room.
-     * A started room cannot accept additional players.
+     * The room's configured player limit is authoritative.
      */
     joinRoom(rawCode, rawName) {
         const code = this.normalizeRoomCode(rawCode);
@@ -131,10 +150,10 @@ class RoomManager {
             );
         }
 
-        if (room.players.length >= MAX_PLAYERS_PER_ROOM) {
+        if (room.players.length >= room.maxPlayers) {
             throw new RoomError(
                 "ROOM_FULL",
-                "That room already has four players.",
+                `That room already has its maximum of ${room.maxPlayers} players.`,
                 409
             );
         }
@@ -165,7 +184,7 @@ class RoomManager {
 
     /*
      * Update only the authenticated player's ready state.
-     * The server accepts an actual boolean, not a truthy string or number.
+     * An actual boolean is required; truthy strings are not accepted.
      */
     setReady(rawCode, playerId, ready) {
         const room = this.requireRoom(rawCode);
@@ -192,8 +211,8 @@ class RoomManager {
     }
 
     /*
-     * Only the host can start. At least two players must be present,
-     * and every player—including the host—must be ready.
+     * Only the host can start.
+     * At least two players must be present, and everyone must be ready.
      */
     startRoom(rawCode, playerId) {
         const room = this.requireRoom(rawCode);
@@ -237,7 +256,61 @@ class RoomManager {
     }
 
     /*
-     * Normalize codes consistently for typing, pasting, and API requests.
+     * Validate room configuration.
+     * Defaults keep existing createRoom(name) calls compatible.
+     */
+    validateRoomSettings(rawSettings) {
+        if (
+            rawSettings === null ||
+            typeof rawSettings !== "object" ||
+            Array.isArray(rawSettings)
+        ) {
+            throw new RoomError(
+                "INVALID_ROOM_SETTINGS",
+                "Room settings must be an object."
+            );
+        }
+
+        const maxPlayers =
+            rawSettings.maxPlayers === undefined
+                ? DEFAULT_MAX_PLAYERS
+                : rawSettings.maxPlayers;
+
+        const seasonEvents =
+            rawSettings.seasonEvents === undefined
+                ? DEFAULT_SEASON_EVENTS
+                : rawSettings.seasonEvents;
+
+        if (
+            !Number.isInteger(maxPlayers) ||
+            maxPlayers < MIN_PLAYERS_PER_ROOM ||
+            maxPlayers > MAX_PLAYERS_PER_ROOM
+        ) {
+            throw new RoomError(
+                "INVALID_MAX_PLAYERS",
+                `The player limit must be a whole number from ${MIN_PLAYERS_PER_ROOM} to ${MAX_PLAYERS_PER_ROOM}.`
+            );
+        }
+
+        if (
+            !Number.isInteger(seasonEvents) ||
+            seasonEvents < MIN_SEASON_EVENTS ||
+            seasonEvents > MAX_SEASON_EVENTS
+        ) {
+            throw new RoomError(
+                "INVALID_SEASON_EVENTS",
+                `Season length must be a whole number from ${MIN_SEASON_EVENTS} to ${MAX_SEASON_EVENTS}.`
+            );
+        }
+
+        return {
+            maxPlayers,
+            seasonEvents
+        };
+    }
+
+    /*
+     * Normalize room codes consistently for typing and API requests.
      */
     normalizeRoomCode(rawCode) {
         if (typeof rawCode !== "string") {
@@ -261,7 +334,6 @@ class RoomManager {
 
     /*
      * Normalize and validate display names on the server.
-     * Client-side validation is helpful UX, but is never a security rule.
      */
     validateDriverName(rawName) {
         if (typeof rawName !== "string") {
@@ -283,7 +355,7 @@ class RoomManager {
             );
         }
 
-        // Reject control characters that can interfere with display/logs.
+        // Reject control characters that could interfere with display/logs.
         if (/[\u0000-\u001F\u007F]/.test(name)) {
             throw new RoomError(
                 "INVALID_DRIVER_NAME",
@@ -341,15 +413,15 @@ class RoomManager {
 
     /*
      * Produce a safe view for one room member.
-     * Never expose internal player IDs, the host's credential, or the
-     * underlying mutable room object to callers.
+     * Never expose internal player IDs or mutable room objects.
      */
     createRoomSnapshot(room, viewerPlayerId) {
         return {
             code: room.code,
             status: room.status,
             playerCount: room.players.length,
-            maxPlayers: MAX_PLAYERS_PER_ROOM,
+            maxPlayers: room.maxPlayers,
+            seasonEvents: room.seasonEvents,
             allPlayersReady: room.players.every(
                 (player) => player.ready
             ),
@@ -368,5 +440,10 @@ module.exports = {
     RoomError,
     ROOM_CODE_LENGTH,
     MAX_PLAYERS_PER_ROOM,
-    MIN_PLAYERS_TO_START
+    MIN_PLAYERS_TO_START,
+    MIN_PLAYERS_PER_ROOM,
+    DEFAULT_MAX_PLAYERS,
+    MIN_SEASON_EVENTS,
+    MAX_SEASON_EVENTS,
+    DEFAULT_SEASON_EVENTS
 };
