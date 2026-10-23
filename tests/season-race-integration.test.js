@@ -590,6 +590,61 @@ test("applying an active race turn advances the live race and clears the pending
     );
 });
 
+test("rejected active race turn application preserves the pending turn", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
+
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+
+    season.startActiveRaceTurn({
+        movementDie: 1,
+        laneChangeDie: 2,
+        eventDie: 3
+    });
+
+    const pendingTurn = season.currentEvent.activeRace.currentTurn;
+    const liveCar = race.raceCars.find(
+        (car) => car.carId === "car-a"
+    );
+    const originalPosition = { ...liveCar.position };
+    const originalDistance = liveCar.distance;
+
+    assert.throws(
+        () => season.applyActiveRaceTurn(),
+        /event must be resolved/i
+    );
+
+    assert.equal(
+        season.currentEvent.activeRace.currentTurn,
+        pendingTurn
+    );
+    assert.deepEqual(liveCar.position, originalPosition);
+    assert.equal(liveCar.distance, originalDistance);
+});
 test("active race turn rejects attempts when no race is active", () => {
     const season = makeSeasonWithEvent({
         phase: "heats"
