@@ -1819,3 +1819,56 @@ test("owner championship breaks a points tie using each owner's best-ranked car"
         playerBBestCar.championshipPosition
     );
 });
+
+
+test("the B-main lineup interleaves heats by finishing position and assigns grid positions", () => {
+    const { season } = prepareSeasonWithHeatResults();
+
+    const bMain = season.createBMainLineup();
+
+    // Expected order: finishing position first, then heat number.
+    const expectedEntries = bMain.entries
+        .map((entry) => ({
+            carId: entry.carId,
+            heatNumber: entry.heatNumber,
+            heatFinishingPosition: entry.heatFinishingPosition
+        }))
+        .sort((a, b) => {
+            if (a.heatFinishingPosition !== b.heatFinishingPosition) {
+                return a.heatFinishingPosition - b.heatFinishingPosition;
+            }
+
+            return a.heatNumber - b.heatNumber;
+        });
+
+    assert.deepEqual(
+        bMain.entries.map((entry) => ({
+            carId: entry.carId,
+            heatNumber: entry.heatNumber,
+            heatFinishingPosition: entry.heatFinishingPosition
+        })),
+        expectedEntries
+    );
+
+    // Every entry's explicit grid position must match its lineup rank.
+    bMain.entries.forEach((entry, index) => {
+        assert.equal(entry.startingPosition, index + 1);
+    });
+
+    // Each successive heat-finishing-position group must be ordered
+    // from Heat 1 through Heat 4.
+    for (let index = 1; index < bMain.entries.length; index++) {
+        const previous = bMain.entries[index - 1];
+        const current = bMain.entries[index];
+
+        if (
+            previous.heatFinishingPosition === current.heatFinishingPosition
+        ) {
+            assert.ok(previous.heatNumber < current.heatNumber);
+        } else {
+            assert.ok(
+                previous.heatFinishingPosition < current.heatFinishingPosition
+            );
+        }
+    }
+});

@@ -648,10 +648,19 @@ class Season {
     /*
      * Build the B-main lineup after all four heats have official results.
      *
-     * Cars that earned a transfer spot are already qualified for the
-     * A-main. Cars marked out-for-event cannot continue in the event.
-     * Remaining eligible cars are collected in heat order, preserving
-     * their finishing order within each heat.
+     * Cars that earned an A-main transfer spot are excluded.
+     * Cars marked out-for-event are also excluded.
+     *
+     * Starting order alternates by heat-finishing position:
+     *   1. Heat 1's first eligible non-transfer
+     *   2. Heat 2's first eligible non-transfer
+     *   3. Heat 3's first eligible non-transfer
+     *   4. Heat 4's first eligible non-transfer
+     *   5. Heat 1's next eligible non-transfer
+     *   ...and so on.
+     *
+     * With the normal results, this means the fifth-place
+     * finishers start ahead of the sixth-place finishers.
      */
     createBMainLineup() {
         if (this.currentEvent === null) {
@@ -674,6 +683,7 @@ class Season {
 
         const entries = [];
 
+        // Gather every eligible car that did not transfer directly.
         for (const heatResult of this.currentEvent.heatResults) {
             for (const result of heatResult.results) {
                 if (
@@ -689,14 +699,28 @@ class Season {
             }
         }
 
-        this.currentEvent.bMainLineup = {
-            entries
-        };
+        // Interleave the heats by finishing position:
+        // fifth place from each heat, then sixth from each, etc.
+        entries.sort((a, b) => {
+            if (a.heatFinishingPosition !== b.heatFinishingPosition) {
+                return a.heatFinishingPosition - b.heatFinishingPosition;
+            }
 
+            return a.heatNumber - b.heatNumber;
+        });
+
+        // Store the grid rank explicitly so the race engine doesn't
+        // have to infer a starting position from array order.
+        entries.forEach((entry, index) => {
+            entry.startingPosition = index + 1;
+        });
+
+        this.currentEvent.bMainLineup = { entries };
         this.currentEvent.phase = "b-main";
 
         return this.currentEvent.bMainLineup;
     }
+
      /*
      * Record the B-main directly from its completed race state.
      */
