@@ -90,17 +90,17 @@
 
                         <h3>Bring the crew.</h3>
                         <p>
-                            Start a private room, choose your driver name,
+                            Start a private room, enter your owner name,
                             and get your friends ready to race.
                         </p>
 
-                        <label for="host-name">YOUR DRIVER NAME</label>
+                        <label for="owner-name-create">YOUR OWNER NAME</label>
                         <input
-                            id="host-name"
-                            name="host-name"
+                            id="owner-name-create"
+                            name="owner-name-create"
                             type="text"
                             maxlength="20"
-                            placeholder="Enter a driver name"
+                            placeholder="Enter your owner name"
                             autocomplete="nickname"
                         >
 
@@ -122,9 +122,19 @@
 
                         <h3>Find your race.</h3>
                         <p>
-                            Got a room code? Enter it here and get ready
-                            to line up on the track.
+                            Got a room code? Enter your owner name and
+                            the room code to line up on the track.
                         </p>
+
+                        <label for="owner-name-join">YOUR OWNER NAME</label>
+                        <input
+                            id="owner-name-join"
+                            name="owner-name-join"
+                            type="text"
+                            maxlength="20"
+                            placeholder="Enter your owner name"
+                            autocomplete="nickname"
+                        >
 
                         <label for="room-code">ROOM CODE</label>
                         <input
@@ -154,8 +164,7 @@
                     role="status"
                     aria-live="polite"
                 >
-                    The game lobby is under construction. Room creation
-                    and joining will be enabled in a future build.
+                    Create a room or join an existing room with a room code.
                 </p>
             </section>
 

@@ -1,31 +1,33 @@
+
 /*
- * Sprint Car Showdown — Browser Interactions
+ * Sprint Car Showdown - Browser Interactions
  * ------------------------------------------
- * Handles the initial Create Game and Join Game forms.
+ * Connects the Create Game and Join Game forms to the real room API.
  *
- * Important:
- * The multiplayer room system is not connected yet.
- * These handlers validate input and explain the current status.
- * They do not create rooms, connect players, or pretend a game
- * has started.
+ * This file handles:
+ * - Driver-name and room-code validation.
+ * - Creating and joining rooms.
+ * - Keeping the player's credential in sessionStorage.
+ * - Showing the real room code and player list.
+ * - Displaying server errors without exposing internal details.
+ *
+ * Ready controls, live lobby updates, and starting a race will be
+ * added in a later milestone.
  */
 
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
-    const hostNameInput = document.getElementById("host-name");
+    const createOwnerNameInput = document.getElementById("owner-name-create");
+    const joinOwnerNameInput = document.getElementById("owner-name-join");
     const createGameButton = document.getElementById("create-game");
     const roomCodeInput = document.getElementById("room-code");
     const joinGameButton = document.getElementById("join-game");
     const feedback = document.getElementById("entry-feedback");
 
-    /*
-     * Fail clearly if the HTML and JavaScript ever get out of sync.
-     * This is more useful during development than silently doing
-     * nothing when an expected element is missing.
-     */
     const requiredElements = [
-        hostNameInput,
+        createOwnerNameInput,
+        joinOwnerNameInput,
         createGameButton,
         roomCodeInput,
         joinGameButton,
@@ -40,114 +42,257 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
     }
 
+    const STORAGE_KEYS = {
+        playerId: "sprintCarShowdown.playerId",
+        roomCode: "sprintCarShowdown.roomCode",
+        ownerName: "sprintCarShowdown.ownerName"
+    };
+
     /*
-     * Display feedback in the existing accessible status area.
-     * The textContent property is used rather than innerHTML so
-     * user-entered text is never interpreted as HTML.
+     * Show a message in the existing status area.
+     * textContent prevents user-entered text from being treated as HTML.
      */
     function showFeedback(message, state = "info") {
         feedback.textContent = message;
         feedback.dataset.state = state;
     }
 
+    function setBusy(isBusy) {
+        createGameButton.disabled = isBusy;
+        joinGameButton.disabled = isBusy;
+
+        createGameButton.setAttribute(
+            "aria-busy",
+            String(isBusy)
+        );
+
+        joinGameButton.setAttribute(
+            "aria-busy",
+            String(isBusy)
+        );
+    }
+
     /*
-     * Validate and normalize a driver's display name.
-     * The HTML also sets maxlength, but JavaScript validates it
-     * independently because browser constraints can change.
+     * Validate the owner-name field used by the action being performed.
+     * Passing the input explicitly prevents Join Game from depending on
+     * the separate Create Game field.
      */
-    function getDriverName() {
-        const name = hostNameInput.value.trim();
+    function getOwnerName(input) {
+        const name = input.value.trim();
 
         if (name.length === 0) {
             showFeedback(
-                "Enter your driver name before continuing.",
+                "Enter your owner name before continuing.",
                 "error"
             );
 
-            hostNameInput.setAttribute("aria-invalid", "true");
-            hostNameInput.focus();
+            input.setAttribute("aria-invalid", "true");
+            input.focus();
 
             return null;
         }
 
         if (name.length > 20) {
             showFeedback(
-                "Driver names must be 20 characters or fewer.",
+                "Owner names must be 20 characters or fewer.",
                 "error"
             );
 
-            hostNameInput.setAttribute("aria-invalid", "true");
-            hostNameInput.focus();
+            input.setAttribute("aria-invalid", "true");
+            input.focus();
 
             return null;
         }
 
-        hostNameInput.removeAttribute("aria-invalid");
-
+        input.removeAttribute("aria-invalid");
         return name;
     }
 
     /*
-     * Create Game currently checks the driver's name and then
-     * explains that room creation will be implemented later.
+     * Send a JSON request and convert unsuccessful HTTP responses
+     * into safe, readable errors.
      */
-    createGameButton.addEventListener("click", () => {
-        const driverName = getDriverName();
+    async function requestJson(url, options = {}) {
+        let response;
 
-        if (driverName === null) {
+        try {
+            response = await fetch(url, {
+                ...options,
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(options.headers || {})
+                }
+            });
+        } catch {
+            throw new Error(
+                "Could not reach the game server. Make sure the server " +
+                "is running and try again."
+            );
+        }
+
+        let data;
+
+        try {
+            data = await response.json();
+        } catch {
+            throw new Error(
+                "The server returned an unreadable response. Try again."
+            );
+        }
+
+        if (!response.ok) {
+            const message = data?.error?.message;
+
+            throw new Error(
+                typeof message === "string"
+                    ? message
+                    : "The request failed. Please try again."
+            );
+        }
+
+        return data;
+    }
+
+    /*
+     * Save the credential and room code for this browser tab.
+     * The credential is private and must never be shared with other
+     * players. sessionStorage survives page reloads in this tab.
+     */
+    function saveSession(playerId, room, ownerName) {
+        if (
+            typeof playerId !== "string" ||
+            playerId.length === 0 ||
+            typeof room?.code !== "string"
+        ) {
+            throw new Error(
+                "The server response was missing room-session details."
+            );
+        }
+
+        try {
+            sessionStorage.setItem(STORAGE_KEYS.playerId, playerId);
+            sessionStorage.setItem(STORAGE_KEYS.roomCode, room.code);
+            sessionStorage.setItem(STORAGE_KEYS.ownerName, ownerName);
+        } catch {
+            throw new Error(
+                "The room was created or joined, but this browser could " +
+                "not save your session. Enable session storage and try again."
+            );
+        }
+    }
+
+    /*
+     * Render the actual room snapshot returned by the server.
+     * This is a snapshot, not a live-updating lobby yet.
+     */
+    function showRoom(room, action) {
+        if (
+            !room ||
+            typeof room.code !== "string" ||
+            !Array.isArray(room.players)
+        ) {
+            showFeedback(
+                "The server response did not contain valid room details.",
+                "error"
+            );
             return;
         }
 
-        showFeedback(
-            `Thanks, ${driverName}. Room creation is not connected yet. ` +
-            "Your driver name is ready; the next step is building the " +
-            "multiplayer lobby.",
-            "info"
-        );
+        const playerLines = room.players.map((player) => {
+            const tags = [];
+
+            if (player.isYou) {
+                tags.push("You");
+            }
+
+            if (player.isHost) {
+                tags.push("Host");
+            }
+
+            tags.push(player.ready ? "Ready" : "Not ready");
+
+            return `${player.name} - ${tags.join(", ")}`;
+        });
+
+        const status = room.status === "started"
+            ? "Started"
+            : "Waiting in lobby";
+
+        const lines = [
+            action,
+            "",
+            `ROOM CODE: ${room.code}`,
+            `Players: ${room.playerCount}/${room.maxPlayers}`,
+            `Status: ${status}`,
+            "",
+            "PLAYERS",
+            ...playerLines,
+            "",
+            "Share the room code with the other players."
+        ];
+
+        showFeedback(lines.join("\n"), "success");
+    }
+
+    /*
+     * Create a new room through POST /api/rooms.
+     */
+    createGameButton.addEventListener("click", async () => {
+        const ownerName = getOwnerName(createOwnerNameInput);
+
+        if (ownerName === null) {
+            return;
+        }
+
+        setBusy(true);
+        showFeedback("Creating your game room...", "info");
+
+        try {
+            const data = await requestJson("/api/rooms", {
+                method: "POST",
+                body: JSON.stringify({ name: ownerName })
+            });
+
+            saveSession(data.playerId, data.room, ownerName);
+            showRoom(data.room, "Room created successfully!");
+        } catch (error) {
+            showFeedback(
+                error.message || "Could not create the room.",
+                "error"
+            );
+        } finally {
+            setBusy(false);
+        }
     });
 
     /*
-     * Keep room codes visually consistent as players type or paste.
-     * Codes are limited to eight letters and numbers in this first UI.
-     * This is input formatting, not proof that a room exists.
+     * Normalize room codes as the player types or pastes.
+     * Room codes generated by the server contain six characters.
      */
     roomCodeInput.addEventListener("input", () => {
         roomCodeInput.value = roomCodeInput.value
             .toUpperCase()
             .replace(/[^A-Z0-9]/g, "")
-            .slice(0, 8);
+            .slice(0, 6);
 
         roomCodeInput.removeAttribute("aria-invalid");
     });
 
     /*
-     * Join Game validates both fields, but does not attempt to join
-     * a room until the server-side room system has been implemented.
+     * Join a room through POST /api/rooms/:code/join.
      */
-    joinGameButton.addEventListener("click", () => {
-        const driverName = getDriverName();
+    joinGameButton.addEventListener("click", async () => {
+        const ownerName = getOwnerName(joinOwnerNameInput);
 
-        if (driverName === null) {
+        if (ownerName === null) {
             return;
         }
 
-        const roomCode = roomCodeInput.value.trim();
+        const roomCode = roomCodeInput.value.trim().toUpperCase();
 
-        if (roomCode.length === 0) {
+        if (!/^[A-Z0-9]{6}$/.test(roomCode)) {
             showFeedback(
-                "Enter the room code shared by the game host.",
-                "error"
-            );
-
-            roomCodeInput.setAttribute("aria-invalid", "true");
-            roomCodeInput.focus();
-
-            return;
-        }
-
-        if (!/^[A-Z0-9]{4,8}$/.test(roomCode)) {
-            showFeedback(
-                "Room codes must contain 4–8 letters or numbers.",
+                "Room codes must contain exactly six letters or numbers.",
                 "error"
             );
 
@@ -159,19 +304,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
         roomCodeInput.removeAttribute("aria-invalid");
 
-        showFeedback(
-            `Your details are ready, ${driverName}. Room lookup is not ` +
-            `connected yet, so code ${roomCode} has not been checked. ` +
-            "The next step is implementing the multiplayer lobby.",
-            "info"
-        );
+        setBusy(true);
+        showFeedback(`Joining room ${roomCode}...`, "info");
+
+        try {
+            const data = await requestJson(
+                `/api/rooms/${encodeURIComponent(roomCode)}/join`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ name: ownerName })
+                }
+            );
+
+            saveSession(data.playerId, data.room, ownerName);
+            showRoom(data.room, "You joined the game successfully!");
+        } catch (error) {
+            showFeedback(
+                error.message || "Could not join the room.",
+                "error"
+            );
+        } finally {
+            setBusy(false);
+        }
     });
 
-    /*
-     * Clear stale error styling when a player corrects their name.
-     */
-    hostNameInput.addEventListener("input", () => {
-        hostNameInput.removeAttribute("aria-invalid");
+    createOwnerNameInput.addEventListener("input", () => {
+        createOwnerNameInput.removeAttribute("aria-invalid");
+    });
+
+    joinOwnerNameInput.addEventListener("input", () => {
+        joinOwnerNameInput.removeAttribute("aria-invalid");
     });
 
     console.log("Sprint Car Showdown browser interactions initialized.");

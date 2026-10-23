@@ -1,24 +1,25 @@
 /*
  * Sprint Car Game HTTP Server
  * ---------------------------
- * Serves the browser client using Node's built-in HTTP module.
+ * Serves the browser client and exposes the multiplayer room API.
  *
- * This server deliberately does not modify or initialize the game
- * engine yet. The browser foundation is being established separately
- * so it can be tested before game integration begins.
+ * Room rules live in RoomManager, not in this HTTP layer. Each server
+ * instance receives its own in-memory room manager, which also keeps
+ * automated tests isolated from one another.
  */
+
+"use strict";
 
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-// All browser-facing files must live inside this directory.
+const { RoomManager, RoomError } = require("./rooms");
+
 const CLIENT_ROOT = path.resolve(__dirname, "../client");
-
-// Use the hosting provider's port when supplied, otherwise use 3000.
 const PORT = Number(process.env.PORT) || 3000;
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 
-// Explicit MIME types prevent browsers from guessing file formats.
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -32,9 +33,6 @@ const MIME_TYPES = {
     ".ico": "image/x-icon"
 };
 
-/*
- * Send a plain-text response with a consistent content type.
- */
 function sendText(response, statusCode, message) {
     response.writeHead(statusCode, {
         "Content-Type": "text/plain; charset=utf-8",
@@ -45,11 +43,262 @@ function sendText(response, statusCode, message) {
     response.end(message);
 }
 
+function sendJson(response, statusCode, data) {
+    response.writeHead(statusCode, {
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store"
+    });
+
+    response.end(JSON.stringify(data));
+}
+
+function sendRoomError(response, error) {
+    if (error instanceof RoomError) {
+        sendJson(response, error.statusCode, {
+            error: {
+                code: error.code,
+                message: error.message
+            }
+        });
+        return;
+    }
+
+    sendJson(response, 500, {
+        error: {
+            code: "INTERNAL_SERVER_ERROR",
+            message: "An unexpected server error occurred."
+        }
+    });
+}
+
+/*
+ * Read a small JSON request body. Reject unsupported content types,
+ * malformed JSON, and oversized bodies before passing data to the
+ * room manager.
+ */
+async function readJsonBody(request) {
+    const contentType = request.headers["content-type"] || "";
+
+    if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+        request.resume();
+
+        throw new RoomError(
+            "JSON_REQUIRED",
+            "Send this request with Content-Type: application/json.",
+            415
+        );
+    }
+
+    const chunks = [];
+    let totalBytes = 0;
+    let tooLarge = false;
+
+    await new Promise((resolve, reject) => {
+        request.on("data", (chunk) => {
+            totalBytes += chunk.length;
+
+            if (totalBytes > MAX_JSON_BODY_BYTES) {
+                tooLarge = true;
+                chunks.length = 0;
+                return;
+            }
+
+            if (!tooLarge) {
+                chunks.push(chunk);
+            }
+        });
+
+        request.on("end", resolve);
+        request.on("error", reject);
+        request.on("aborted", () => {
+            reject(new RoomError(
+                "REQUEST_ABORTED",
+                "The request was interrupted.",
+                400
+            ));
+        });
+    });
+
+    if (tooLarge) {
+        throw new RoomError(
+            "BODY_TOO_LARGE",
+            "The JSON request body is too large.",
+            413
+        );
+    }
+
+    let parsed;
+
+    try {
+        parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+        throw new RoomError(
+            "INVALID_JSON",
+            "The request body must contain valid JSON."
+        );
+    }
+
+    if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+    ) {
+        throw new RoomError(
+            "INVALID_JSON_SHAPE",
+            "The JSON body must be an object."
+        );
+    }
+
+    return parsed;
+}
+
+/*
+ * Player credentials are deliberately accepted only in this header.
+ * Public room snapshots never contain the credentials themselves.
+ */
+function getPlayerCredential(request) {
+    const value = request.headers["x-player-id"];
+
+    if (typeof value !== "string" || value.length === 0) {
+        throw new RoomError(
+            "PLAYER_CREDENTIAL_REQUIRED",
+            "A player credential is required in the X-Player-Id header.",
+            401
+        );
+    }
+
+    return value;
+}
+
+function decodeRoomCode(encodedCode) {
+    let code;
+
+    try {
+        code = decodeURIComponent(encodedCode);
+    } catch {
+        throw new RoomError(
+            "INVALID_ROOM_CODE",
+            "Enter a valid room code."
+        );
+    }
+
+    return code;
+}
+
+/*
+ * Handle API routes. Return true when the request belongs to /api/,
+ * including unknown API routes, so they never fall through to static
+ * file serving.
+ */
+async function handleApiRequest(request, response, url, roomManager) {
+    if (!url.pathname.startsWith("/api/") && url.pathname !== "/api") {
+        return false;
+    }
+
+    try {
+        const method = request.method;
+        const pathname = url.pathname;
+
+        // POST /api/rooms — create a room and register the host.
+        if (method === "POST" && pathname === "/api/rooms") {
+            const body = await readJsonBody(request);
+            const result = roomManager.createRoom(body.name);
+
+            sendJson(response, 201, {
+                playerId: result.playerId,
+                room: result.room
+            });
+
+            return true;
+        }
+
+        // POST /api/rooms/:code/join — join a waiting room.
+        const joinMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/join$/
+        );
+
+        if (method === "POST" && joinMatch) {
+            const body = await readJsonBody(request);
+            const result = roomManager.joinRoom(
+                decodeRoomCode(joinMatch[1]),
+                body.name
+            );
+
+            sendJson(response, 200, {
+                playerId: result.playerId,
+                room: result.room
+            });
+
+            return true;
+        }
+
+        // GET /api/rooms/:code — fetch the member's current room view.
+        const roomMatch = pathname.match(/^\/api\/rooms\/([^/]+)$/);
+
+        if (method === "GET" && roomMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.getRoom(
+                decodeRoomCode(roomMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // PUT /api/rooms/:code/ready — change this player's ready state.
+        const readyMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/ready$/
+        );
+
+        if (method === "PUT" && readyMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+            const room = roomManager.setReady(
+                decodeRoomCode(readyMatch[1]),
+                playerId,
+                body.ready
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/start — host-only start action.
+        const startMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/start$/
+        );
+
+        if (method === "POST" && startMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.startRoom(
+                decodeRoomCode(startMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        sendJson(response, 404, {
+            error: {
+                code: "API_ROUTE_NOT_FOUND",
+                message: "That API endpoint does not exist."
+            }
+        });
+
+        return true;
+    } catch (error) {
+        sendRoomError(response, error);
+        return true;
+    }
+}
+
 /*
  * Resolve and serve one requested browser file.
  */
 async function serveFile(request, response) {
-    // Only GET and HEAD requests are needed for the initial browser UI.
     if (request.method !== "GET" && request.method !== "HEAD") {
         response.setHeader("Allow", "GET, HEAD");
         sendText(response, 405, "Method Not Allowed");
@@ -59,7 +308,6 @@ async function serveFile(request, response) {
     let pathname;
 
     try {
-        // Parse the URL and decode its path. Invalid encodings are rejected.
         pathname = decodeURIComponent(
             new URL(request.url, "http://localhost").pathname
         );
@@ -68,18 +316,12 @@ async function serveFile(request, response) {
         return;
     }
 
-    // The site root serves the browser entry page.
     if (pathname === "/") {
         pathname = "/index.html";
     }
 
-    // Resolve the requested path against the browser directory.
-    const filePath = path.resolve(
-        CLIENT_ROOT,
-        `.${pathname}`
-    );
+    const filePath = path.resolve(CLIENT_ROOT, `.${pathname}`);
 
-    // Prevent path traversal outside src/client.
     if (
         filePath !== CLIENT_ROOT &&
         !filePath.startsWith(CLIENT_ROOT + path.sep)
@@ -117,7 +359,6 @@ async function serveFile(request, response) {
         "Cache-Control": "no-cache"
     });
 
-    // HEAD returns the same headers as GET without the response body.
     if (request.method === "HEAD") {
         response.end();
         return;
@@ -126,25 +367,42 @@ async function serveFile(request, response) {
     response.end(fileContents);
 }
 
-/*
- * Create a server instance without starting it immediately.
- *
- * Exporting the factory allows automated tests to use a temporary
- * local port without launching a separate Node process.
- */
 function createServer() {
-    return http.createServer((request, response) => {
-        serveFile(request, response).catch(() => {
+    const roomManager = new RoomManager();
+
+    return http.createServer(async (request, response) => {
+        let url;
+
+        try {
+            url = new URL(request.url, "http://localhost");
+        } catch {
+            sendText(response, 400, "Bad Request");
+            return;
+        }
+
+        const handledByApi = await handleApiRequest(
+            request,
+            response,
+            url,
+            roomManager
+        );
+
+        if (handledByApi) {
+            return;
+        }
+
+        try {
+            await serveFile(request, response);
+        } catch {
             if (!response.headersSent) {
                 sendText(response, 500, "Internal Server Error");
             } else {
                 response.destroy();
             }
-        });
+        }
     });
 }
 
-// Start listening only when this file is run directly with Node.
 if (require.main === module) {
     const server = createServer();
 
