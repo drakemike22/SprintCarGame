@@ -36,7 +36,24 @@ const {
     buildEventStandings
 } = require("./event-standings");
 const { RaceCar } = require("../data/race-car");
-const { createRaceState } = require("../rules/race-coordinator");
+
+const {
+    createRaceState,
+    getCurrentRaceCar,
+    applyCompletedRaceTurn
+} = require("../rules/race-coordinator");
+
+const {
+    CAR_STATUSES
+} = require("../rules/car-status");
+
+const {
+    startTurn,
+    chooseTurnPosition,
+    undoTurnPosition,
+    resolveMechanicalSpinner,
+    resolveWreckSpinner
+} = require("../rules/turn");
 class Season {
     constructor({ id, players, cars, eventCount }) {
         // ---------------------------------------------------------
@@ -655,7 +672,11 @@ class Season {
             raceType,
             ...(heatNumber === undefined ? {} : { heatNumber }),
             lapsToComplete,
-            state
+            state,
+
+            // A pending turn belongs to this race only. Separate heats
+            // must never share movement or spinner state.
+            currentTurn: null
         };
 
         // Save the individual race and identify it as the currently
@@ -768,6 +789,235 @@ class Season {
             entries: this.currentEvent.aMainLineup.entries,
             lapsToComplete: 5
         });
+    }
+    /*
+     * Returns the active race record, which contains both its live
+     * race state and any turn currently being resolved.
+     */
+    _getActiveRaceRecord() {
+        if (!this.currentEvent) {
+            throw new Error("No event has started.");
+        }
+
+        const raceRecord = this.currentEvent.activeRace;
+
+        if (!raceRecord || !raceRecord.state) {
+            throw new Error("No active race has been started.");
+        }
+
+        return raceRecord;
+    }
+
+    /*
+     * Returns positions occupied by other running cars.
+     *
+     * Parked cars and cars eliminated from the race or event do not
+     * block movement. The current car is excluded from this list.
+     */
+    _getOccupiedRacePositions(raceState, excludedCarId) {
+        return raceState.raceCars
+            .filter((raceCar) =>
+                raceCar.carId !== excludedCarId &&
+                raceCar.status === CAR_STATUSES.RUNNING
+            )
+            .map((raceCar) => ({
+                section: raceCar.position.section,
+                lane: raceCar.position.lane
+            }));
+    }
+
+    /*
+     * Starts a turn for the race coordinator's current car.
+     *
+     * Dice values are supplied by the caller for now. This keeps
+     * turn logic deterministic and easy to test; a future interface
+     * can supply actual dice rolls.
+     */
+    startActiveRaceTurn({ movementDie, laneChangeDie, eventDie }) {
+        const raceRecord = this._getActiveRaceRecord();
+        const raceState = raceRecord.state;
+
+        if (raceState.status !== "running") {
+            throw new Error("The active race is not running.");
+        }
+
+        if (raceRecord.currentTurn !== null) {
+            throw new Error(
+                "The active race already has a pending turn."
+            );
+        }
+
+        const raceCar = getCurrentRaceCar(raceState);
+
+        if (!raceCar) {
+            throw new Error(
+                "The active race has no car waiting to take a turn."
+            );
+        }
+
+        const permanentCar = this.cars.find(
+            (car) => car.id === raceCar.carId
+        );
+
+        if (!permanentCar) {
+            throw new Error(
+                `No permanent car exists for race car "${raceCar.carId}".`
+            );
+        }
+
+        const turn = startTurn({
+            car: permanentCar,
+            raceCar,
+            currentPosition: raceCar.position,
+            occupiedPositions: this._getOccupiedRacePositions(
+                raceState,
+                raceCar.carId
+            ),
+            movementDie,
+            laneChangeDie,
+            eventDie
+        });
+
+        raceRecord.currentTurn = turn;
+
+        return turn;
+    }
+
+    /*
+     * Chooses one legal next space in the current movement plan.
+     * The live race car is not moved until applyActiveRaceTurn().
+     */
+    chooseActiveRaceTurnPosition(targetPosition) {
+        const raceRecord = this._getActiveRaceRecord();
+
+        if (!raceRecord.currentTurn) {
+            throw new Error("There is no pending turn to move.");
+        }
+
+        const updatedTurn = chooseTurnPosition(
+            raceRecord.currentTurn,
+            targetPosition
+        );
+
+        raceRecord.currentTurn = updatedTurn;
+
+        return updatedTurn;
+    }
+
+    /*
+     * Undoes the most recent movement choice when the turn rules
+     * still permit undoing it.
+     */
+    undoActiveRaceTurnPosition() {
+        const raceRecord = this._getActiveRaceRecord();
+
+        if (!raceRecord.currentTurn) {
+            throw new Error("There is no pending turn to undo.");
+        }
+
+        const updatedTurn = undoTurnPosition(
+            raceRecord.currentTurn
+        );
+
+        raceRecord.currentTurn = updatedTurn;
+
+        return updatedTurn;
+    }
+
+    /*
+     * Resolves the pending mechanical wheel and saves the returned
+     * turn, including any resulting change to the race-car record.
+     */
+    resolveActiveRaceMechanicalSpinner(slot) {
+        const raceRecord = this._getActiveRaceRecord();
+
+        if (!raceRecord.currentTurn) {
+            throw new Error(
+                "There is no pending turn for the mechanical spinner."
+            );
+        }
+
+        const updatedTurn = resolveMechanicalSpinner(
+            raceRecord.currentTurn,
+            slot
+        );
+
+        raceRecord.currentTurn = updatedTurn;
+
+        return updatedTurn;
+    }
+
+    /*
+     * Resolves the wreck wheel using the other cars that are running
+     * at resolution time. This avoids stale occupancy information.
+     */
+    resolveActiveRaceWreckSpinner(slot) {
+        const raceRecord = this._getActiveRaceRecord();
+
+        if (!raceRecord.currentTurn) {
+            throw new Error(
+                "There is no pending turn for the wreck spinner."
+            );
+        }
+
+        const raceCar = raceRecord.currentTurn.raceCar;
+
+        if (!raceCar) {
+            throw new Error(
+                "The pending turn has no associated race car."
+            );
+        }
+
+        const occupiedPositions = this._getOccupiedRacePositions(
+            raceRecord.state,
+            raceCar.carId
+        );
+
+        const updatedTurn = resolveWreckSpinner(
+            raceRecord.currentTurn,
+            slot,
+            occupiedPositions
+        );
+
+        raceRecord.currentTurn = updatedTurn;
+
+        return updatedTurn;
+    }
+    /*
+     * Applies a resolved turn to the live race state. The coordinator
+     * validates and applies movement, lap progress, mechanical status,
+     * wreck effects, and turn advancement.
+     *
+     * Clear the pending turn only after the coordinator succeeds.
+     */
+    applyActiveRaceTurn() {
+        const raceRecord = this._getActiveRaceRecord();
+
+        if (!raceRecord.currentTurn) {
+            throw new Error("There is no pending turn to apply.");
+        }
+
+        if (raceRecord.state.status !== "running") {
+            throw new Error("The active race is not running.");
+        }
+
+        const turn = raceRecord.currentTurn;
+
+        if (!turn.raceCar || !turn.raceCar.carId) {
+            throw new Error(
+                "The pending turn has no associated race car."
+            );
+        }
+
+        const updatedRaceState = applyCompletedRaceTurn(
+            raceRecord.state,
+            turn.raceCar.carId,
+            turn
+        );
+
+        raceRecord.currentTurn = null;
+
+        return updatedRaceState;
     }
 
     /*

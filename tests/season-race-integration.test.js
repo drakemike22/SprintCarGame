@@ -375,3 +375,177 @@ test("race start rejects unknown cars and invalid grid positions", () => {
         /starting positions must be between 1 and 30/
     );
 });
+
+test("active race turn plans movement without changing the live position", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
+
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+    const originalPosition = { ...race.raceCars[0].position };
+
+    const turn = season.startActiveRaceTurn({
+        movementDie: 1,
+        laneChangeDie: 2,
+        eventDie: 3
+    });
+
+    assert.equal(turn.raceCar.carId, "car-a");
+    assert.deepEqual(race.raceCars[0].position, originalPosition);
+    assert.equal(
+        season.currentEvent.raceStates["heat-1"].currentTurn,
+        turn
+    );
+
+    assert.throws(
+        () => season.startActiveRaceTurn({
+            movementDie: 2,
+            laneChangeDie: 3,
+            eventDie: 4
+        }),
+        /already has a pending turn/
+    );
+});
+
+test("applying an active race turn advances the live race and clears the pending turn", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
+
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+
+    season.startActiveRaceTurn({
+        movementDie: 1,
+        laneChangeDie: 2,
+        eventDie: 3
+    });
+
+    // Movement allowance is five. Keep choosing the next space in
+    // lane 2 so the test focuses on season/coordinator integration.
+    for (let step = 0; step < 5; step += 1) {
+        const turn = season.currentEvent.activeRace.currentTurn;
+        const plan = turn.movementPlan;
+        const currentPosition = plan.position;
+
+        const nextPosition = {
+            section: (currentPosition.section + 1) % 30,
+            lane: currentPosition.lane
+        };
+
+        season.chooseActiveRaceTurnPosition(nextPosition);
+    }
+
+    const updatedRace = season.applyActiveRaceTurn();
+
+    assert.equal(updatedRace, race);
+    assert.equal(
+        season.currentEvent.activeRace.currentTurn,
+        null
+    );
+    assert.equal(
+        updatedRace.raceCars.find((car) => car.carId === "car-a").distance,
+        5
+    );
+});
+
+test("active race turn rejects attempts when no race is active", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats"
+    });
+
+    assert.throws(
+        () => season.startActiveRaceTurn({
+            movementDie: 1,
+            laneChangeDie: 2,
+            eventDie: 3
+        }),
+        /No active race has been started/
+    );
+});
+
+test("active race turn occupancy excludes cars that are no longer running", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [
+            {
+                heatNumber: 1,
+                entries: [
+                    { carId: "car-a", startingPosition: 1 },
+                    { carId: "car-b", startingPosition: 2 }
+                ]
+            },
+            { heatNumber: 2, entries: [] },
+            { heatNumber: 3, entries: [] },
+            { heatNumber: 4, entries: [] }
+        ],
+        heatResults: [
+            { heatNumber: 1, results: [] },
+            { heatNumber: 2, results: [] },
+            { heatNumber: 3, results: [] },
+            { heatNumber: 4, results: [] }
+        ]
+    });
+
+    season.cars = [
+        { id: "car-a", autoMovement: 4, bonusMovement: 1 },
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+    ];
+
+    const race = season.startHeatRace(1);
+
+    race.raceCars[1].status = CAR_STATUSES.OUT_FOR_RACE;
+
+    const turn = season.startActiveRaceTurn({
+        movementDie: 1,
+        laneChangeDie: 2,
+        eventDie: 3
+    });
+
+    assert.deepEqual(turn.movementPlan.occupiedPositions, []);
+});
