@@ -35,6 +35,8 @@ const {
 const {
     buildEventStandings
 } = require("./event-standings");
+const { RaceCar } = require("../data/race-car");
+const { createRaceState } = require("../rules/race-coordinator");
 class Season {
     constructor({ id, players, cars, eventCount }) {
         // ---------------------------------------------------------
@@ -564,6 +566,210 @@ class Season {
 
         return heats;
     }
+    /**
+     * Converts a lineup rank into its starting-grid coordinates.
+     *
+     * Rank 1 starts at section 29, rank 2 at section 28, and so on.
+     * Every car starts in lane 2.
+     */
+    _getRaceStartingPosition(startingPosition) {
+        if (
+            !Number.isInteger(startingPosition) ||
+            startingPosition < 1 ||
+            startingPosition > 30
+        ) {
+            throw new Error(
+                "Race lineup starting positions must be between 1 and 30."
+            );
+        }
+
+        return {
+            section: 30 - startingPosition,
+            lane: 2
+        };
+    }
+
+    /**
+     * Builds and stores a live race from an existing season lineup.
+     *
+     * Permanent Car objects provide identity and stats for later
+     * movement calculations. RaceCar objects hold temporary state
+     * for this individual race.
+     */
+    _startLineupRace({ raceKey, raceType, entries, lapsToComplete, heatNumber }) {
+        if (!this.currentEvent) {
+            throw new Error("No event has started.");
+        }
+
+        if (!Array.isArray(entries) || entries.length === 0) {
+            throw new Error("A non-empty race lineup is required.");
+        }
+
+        // Keep every race's state so starting another heat does not
+        // overwrite the state of a previously run heat.
+        if (!this.currentEvent.raceStates) {
+            this.currentEvent.raceStates = {};
+        }
+
+        if (this.currentEvent.raceStates[raceKey]) {
+            throw new Error("This race has already been started.");
+        }
+
+        const lineupCarIds = entries.map((entry) => entry.carId);
+
+        if (
+            lineupCarIds.some(
+                (carId) =>
+                    typeof carId !== "string" || carId.trim() === ""
+            )
+        ) {
+            throw new Error("Every lineup entry must have a valid car ID.");
+        }
+
+        if (new Set(lineupCarIds).size !== lineupCarIds.length) {
+            throw new Error("A race lineup cannot contain duplicate cars.");
+        }
+
+        const raceCars = entries.map((entry) => {
+            const permanentCar = this.cars.find(
+                (car) => car.id === entry.carId
+            );
+
+            if (!permanentCar) {
+                throw new Error(
+                    `Race lineup references unknown car "${entry.carId}".`
+                );
+            }
+
+            return new RaceCar({
+                carId: permanentCar.id,
+                startingPosition: this._getRaceStartingPosition(
+                    entry.startingPosition
+                )
+            });
+        });
+
+        const state = createRaceState(raceCars, lapsToComplete);
+
+        const raceRecord = {
+            raceType,
+            ...(heatNumber === undefined ? {} : { heatNumber }),
+            lapsToComplete,
+            state
+        };
+
+        // Save the individual race and identify it as the currently
+        // active race for consumers such as the future game interface.
+        this.currentEvent.raceStates[raceKey] = raceRecord;
+        this.currentEvent.activeRace = raceRecord;
+
+        return state;
+    }
+
+    /**
+     * Starts one of the four heat races.
+     * Each heat is a three-lap race.
+     */
+    startHeatRace(heatNumber) {
+        if (!this.currentEvent) {
+            throw new Error("No event has started.");
+        }
+
+        if (this.currentEvent.phase !== "heats") {
+            throw new Error("Heat races can only start during the heats phase.");
+        }
+
+        if (
+            !Number.isInteger(heatNumber) ||
+            heatNumber < 1 ||
+            heatNumber > 4
+        ) {
+            throw new Error("Heat number must be between 1 and 4.");
+        }
+
+        const lineup = this.currentEvent.heatLineups?.find(
+            (heat) => heat.heatNumber === heatNumber
+        );
+
+        if (!lineup) {
+            throw new Error(`Heat ${heatNumber} has no starting lineup.`);
+        }
+
+        const results = this.currentEvent.heatResults?.find(
+            (heat) => heat.heatNumber === heatNumber
+        );
+
+        if (!results || results.results.length > 0) {
+            throw new Error(
+                `Heat ${heatNumber} has already had results recorded or is not ready.`
+            );
+        }
+
+        return this._startLineupRace({
+            raceKey: `heat-${heatNumber}`,
+            raceType: "heat",
+            heatNumber,
+            entries: lineup.entries,
+            lapsToComplete: 3
+        });
+    }
+
+    /**
+     * Starts the B-main as a three-lap race.
+     */
+    startBMainRace() {
+        if (!this.currentEvent) {
+            throw new Error("No event has started.");
+        }
+
+        if (this.currentEvent.phase !== "b-main") {
+            throw new Error("The B-main can only start during the B-main phase.");
+        }
+
+        if (!this.currentEvent.bMainLineup) {
+            throw new Error("The B-main starting lineup has not been created.");
+        }
+
+        if (this.currentEvent.bMainResults) {
+            throw new Error("B-main results have already been recorded.");
+        }
+
+        return this._startLineupRace({
+            raceKey: "b-main",
+            raceType: "b-main",
+            entries: this.currentEvent.bMainLineup.entries,
+            lapsToComplete: 3
+        });
+    }
+
+    /**
+     * Starts the A-main as a five-lap race.
+     */
+    startAMainRace() {
+        if (!this.currentEvent) {
+            throw new Error("No event has started.");
+        }
+
+        if (this.currentEvent.phase !== "a-main") {
+            throw new Error("The A-main can only start during the A-main phase.");
+        }
+
+        if (!this.currentEvent.aMainLineup) {
+            throw new Error("The A-main starting lineup has not been created.");
+        }
+
+        if (this.currentEvent.aMainResults) {
+            throw new Error("A-main results have already been recorded.");
+        }
+
+        return this._startLineupRace({
+            raceKey: "a-main",
+            raceType: "a-main",
+            entries: this.currentEvent.aMainLineup.entries,
+            lapsToComplete: 5
+        });
+    }
+
     /*
      * Convert a completed live race into the finisher records expected
      * by the existing season result-recording methods.
