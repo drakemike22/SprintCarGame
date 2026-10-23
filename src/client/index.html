@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        name="description"
+        content="A turn-based dirt-track sprint car racing game for friends."
+    >
+    <meta name="theme-color" content="#171916">
+    <title>Sprint Car Showdown</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <script src="/js/app.js" defer></script>
+</head>
+<body>
+    <div class="page-shell">
+        <header class="site-header">
+            <a class="brand" href="/" aria-label="Sprint Car Showdown home">
+                <span class="brand-mark" aria-hidden="true">SC</span>
+                <span class="brand-copy">
+                    <span class="brand-name">SPRINT CAR</span>
+                    <span class="brand-subtitle">SHOWDOWN</span>
+                </span>
+            </a>
+
+            <div class="header-status">
+                <span class="status-dot" aria-hidden="true"></span>
+                <span>LOCAL BUILD</span>
+            </div>
+        </header>
+
+        <main>
+            <section class="hero" aria-labelledby="hero-title">
+                <div class="hero-copy">
+                    <p class="eyebrow">
+                        <span class="eyebrow-line" aria-hidden="true"></span>
+                        DIRT TRACK. BIG MOMENTS.
+                    </p>
+
+                    <h1 id="hero-title">
+                        EVERY TURN<br>
+                        <span>COUNTS.</span>
+                    </h1>
+
+                    <p class="hero-description">
+                        Build your lineup, roll the dice, and battle your
+                        friends for dirt-track glory. Every decision can
+                        change the race.
+                    </p>
+
+                    <div class="hero-tags" aria-label="Game features">
+                        <span>2–4 PLAYERS</span>
+                        <span class="tag-divider" aria-hidden="true"></span>
+                        <span>TURN-BASED RACING</span>
+                        <span class="tag-divider" aria-hidden="true"></span>
+                        <span>FRIENDLY COMPETITION</span>
+                    </div>
+                </div>
+
+                <div class="hero-art" aria-label="Sprint car racing artwork">
+                    <div class="art-glow" aria-hidden="true"></div>
+                    <div class="art-speed-lines" aria-hidden="true"></div>
+
+                    <div class="art-number" aria-hidden="true">32</div>
+
+                    <div class="art-caption">
+                        <span class="caption-label">THE GREEN FLAG IS COMING</span>
+                        <span class="caption-title">OWN THE TRACK.</span>
+                    </div>
+
+                    <div class="art-stripe" aria-hidden="true"></div>
+                </div>
+            </section>
+
+            <section class="game-entry" aria-labelledby="entry-title">
+                <div class="section-heading">
+                    <div>
+                        <p class="eyebrow">YOUR NEXT RACE STARTS HERE</p>
+                        <h2 id="entry-title">GET ON THE GRID</h2>
+                    </div>
+                    <span class="build-label">FOUNDATION BUILD</span>
+                </div>
+
+                <div class="entry-grid">
+                    <article class="entry-card create-card">
+                        <div class="card-topline">
+                            <span class="card-icon" aria-hidden="true">01</span>
+                            <span class="card-kicker">HOST A RACE</span>
+                        </div>
+
+                        <h3>Bring the crew.</h3>
+                        <p>
+                            Start a private room, choose your driver name,
+                            and get your friends ready to race.
+                        </p>
+
+                        <label for="host-name">YOUR DRIVER NAME</label>
+                        <input
+                            id="host-name"
+                            name="host-name"
+                            type="text"
+                            maxlength="20"
+                            placeholder="Enter a driver name"
+                            autocomplete="nickname"
+                        >
+
+                        <button
+                            class="button button-primary"
+                            id="create-game"
+                            type="button"
+                        >
+                            CREATE GAME
+                            <span aria-hidden="true">↗</span>
+                        </button>
+                    </article>
+
+                    <article class="entry-card join-card">
+                        <div class="card-topline">
+                            <span class="card-icon" aria-hidden="true">02</span>
+                            <span class="card-kicker">JOIN YOUR FRIENDS</span>
+                        </div>
+
+                        <h3>Find your race.</h3>
+                        <p>
+                            Got a room code? Enter it here and get ready
+                            to line up on the track.
+                        </p>
+
+                        <label for="room-code">ROOM CODE</label>
+                        <input
+                            id="room-code"
+                            name="room-code"
+                            type="text"
+                            maxlength="8"
+                            placeholder="ENTER CODE"
+                            autocomplete="off"
+                            autocapitalize="characters"
+                        >
+
+                        <button
+                            class="button button-secondary"
+                            id="join-game"
+                            type="button"
+                        >
+                            JOIN GAME
+                            <span aria-hidden="true">→</span>
+                        </button>
+                    </article>
+                </div>
+
+                <p
+                    class="feedback-message"
+                    id="entry-feedback"
+                    role="status"
+                    aria-live="polite"
+                >
+                    The game lobby is under construction. Room creation
+                    and joining will be enabled in a future build.
+                </p>
+            </section>
+
+            <section class="race-notes" aria-label="Game overview">
+                <div class="note-item">
+                    <span class="note-number">01</span>
+                    <div>
+                        <h3>Build your stable</h3>
+                        <p>Draft your cars and prepare your season.</p>
+                    </div>
+                </div>
+
+                <div class="note-item">
+                    <span class="note-number">02</span>
+                    <div>
+                        <h3>Race your way</h3>
+                        <p>Roll, choose your line, and manage risk.</p>
+                    </div>
+                </div>
+
+                <div class="note-item">
+                    <span class="note-number">03</span>
+                    <div>
+                        <h3>Chase the title</h3>
+                        <p>Earn points and fight for the championship.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="site-footer">
+            <span>SPRINT CAR SHOWDOWN</span>
+            <span>BUILT FOR THE LOVE OF RACING</span>
+        </footer>
+    </div>
+</body>
+</html>
