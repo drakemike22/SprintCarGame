@@ -200,8 +200,27 @@ test("a room cannot start until every player is ready", () => {
 
     const room = manager.startRoom(host.room.code, host.playerId);
 
+    // Starting the lobby must also create the server-side season.
+    const internalRoom = manager.rooms.get(host.room.code);
+
     assert.equal(room.status, "started");
     assert.equal(room.allPlayersReady, true);
+    assert.ok(internalRoom.season);
+
+    // The season uses the room's configured event count and all 32 cars.
+    assert.equal(internalRoom.season.eventCount, 5);
+    assert.equal(internalRoom.season.players.length, 2);
+    assert.equal(internalRoom.season.cars.length, 32);
+
+    // Each player keeps their server-issued ID and chosen display name.
+    assert.equal(internalRoom.season.players[0].id, host.playerId);
+    assert.equal(internalRoom.season.players[0].name, "Host");
+    assert.equal(internalRoom.season.players[1].id, guest.playerId);
+    assert.equal(internalRoom.season.players[1].name, "Guest");
+
+    // The public room snapshot must not expose the season or player IDs.
+    assert.equal(Object.hasOwn(room, "season"), false);
+    assert.equal(Object.hasOwn(room.players[0], "id"), false);
 });
 
 test("a non-host cannot start a room", () => {

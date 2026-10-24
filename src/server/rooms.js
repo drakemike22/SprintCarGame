@@ -19,7 +19,10 @@
 "use strict";
 
 const crypto = require("node:crypto");
-
+// Existing game-engine models used when a multiplayer season starts.
+const { Season } = require("../game/season/season");
+const { Player } = require("../game/season/player");
+const { cars } = require("../game/data/cars");
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -101,6 +104,7 @@ class RoomManager {
         const room = {
             code,
             status: "waiting",
+            season: null,
             hostPlayerId: playerId,
             createdAt: Date.now(),
 
@@ -249,6 +253,29 @@ class RoomManager {
                 409
             );
         }
+
+        // Give each player a distinct color based on their room seat.
+        const playerColors = [
+            "#2563eb",
+            "#dc2626",
+            "#16a34a",
+            "#9333ea"
+        ];
+
+        // Create the authoritative season on the server.
+        // Every browser will use this same season in future milestones.
+        room.season = new Season({
+            id: room.code,
+            players: room.players.map((roomPlayer, index) =>
+                new Player({
+                    id: roomPlayer.id,
+                    name: roomPlayer.name,
+                    color: playerColors[index]
+                })
+            ),
+            cars,
+            eventCount: room.seasonEvents
+        });
 
         room.status = "started";
 
