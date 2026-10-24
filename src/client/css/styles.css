@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Sprint Car Showdown â€” Main Stylesheet
  * -------------------------------------
  * Dark motorsports-inspired design.
@@ -1402,5 +1402,151 @@ a {
 
     .draft-car-stats {
         font-size: 0.82rem;
+    }
+}
+
+/* Sorted, single-column driver roster for the draft. */
+.draft-car-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.draft-car-card {
+    display: grid;
+    grid-template-columns:
+        minmax(55px, 0.45fr)
+        minmax(140px, 1.2fr)
+        minmax(220px, 2fr)
+        minmax(100px, 0.7fr);
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+}
+
+.draft-car-card h3 {
+    font-size: 1.05rem;
+}
+
+.draft-pick-button {
+    width: auto;
+    margin-top: 0;
+}
+
+@media (max-width: 600px) {
+    .draft-car-card {
+        grid-template-columns: 52px minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 10px;
+    }
+
+    .draft-car-card h3 {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .draft-car-driver {
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .draft-car-stats {
+        grid-column: 2;
+        grid-row: 2;
+        font-size: 0.8rem;
+    }
+
+    .draft-pick-button {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        padding: 8px;
+    }
+}
+
+/* Keep each movement label directly beside its value. */
+.draft-car-stats {
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+    font-size: 0.85rem;
+}
+
+@media (max-width: 600px) {
+    .draft-car-stats {
+        grid-column: 1 / span 2;
+        grid-row: 2;
+        white-space: nowrap;
+        font-size: 0.78rem;
+    }
+}
+
+
+/* Draft order and player teams. */
+.draft-roll-list {
+    grid-template-columns: repeat(
+        auto-fit,
+        minmax(135px, 1fr)
+    );
+    padding-left: 0;
+    list-style: none;
+}
+
+.draft-roll-item {
+    min-width: 0;
+}
+
+.draft-teams-section {
+    margin-top: 26px;
+}
+
+.draft-team-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.draft-team-card {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid var(--border, #353d35);
+    border-radius: 10px;
+    background: var(--background, #101413);
+}
+
+.draft-team-card h4 {
+    margin: 0 0 12px;
+    overflow-wrap: anywhere;
+}
+
+.draft-team-roster {
+    display: grid;
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.draft-team-car {
+    display: grid;
+    gap: 4px;
+    padding-top: 9px;
+    border-top: 1px solid var(--border, #353d35);
+}
+
+.draft-team-car strong {
+    overflow-wrap: anywhere;
+}
+
+.draft-team-car span,
+.draft-team-empty {
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.4;
+}
+
+@media (max-width: 600px) {
+    .draft-roll-list,
+    .draft-team-list {
+        grid-template-columns: minmax(0, 1fr);
     }
 }

@@ -59,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const draftRerollButton = document.getElementById("draft-reroll-button");
     const draftFeedback = document.getElementById("draft-feedback");
     const draftRollList = document.getElementById("draft-roll-list");
+    const draftTeamList = document.getElementById("draft-team-list");
     const draftPickHistory = document.getElementById("draft-pick-history");
     const draftCarHelp = document.getElementById("draft-car-help");
     const draftCarList = document.getElementById("draft-car-list");
@@ -90,6 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
         draftRerollButton,
         draftFeedback,
         draftRollList,
+        draftTeamList,
         draftPickHistory,
         draftCarHelp,
         draftCarList
@@ -352,6 +354,7 @@ document.addEventListener("DOMContentLoaded", () => {
             draftRollButton.hidden = true;
             draftRerollButton.hidden = true;
             draftRollList.replaceChildren();
+            draftTeamList.replaceChildren();
             draftPickHistory.replaceChildren();
             draftCarList.replaceChildren();
             return;
@@ -501,6 +504,68 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const picks = Array.isArray(draft.picks) ? draft.picks : [];
 
+        /*
+         * Build separate team rosters from the server-confirmed picks.
+         * The player list includes people who have not picked a car yet.
+         */
+        draftTeamList.replaceChildren();
+
+        playersToDisplay.forEach((playerName) => {
+            const team = document.createElement("section");
+            team.className = "draft-team-card";
+
+            const heading = document.createElement("h4");
+            heading.textContent = playerName;
+
+            const roster = document.createElement("ul");
+            roster.className = "draft-team-roster";
+
+            const teamPicks = picks.filter(
+                (pick) => pick.playerName === playerName
+            );
+
+            if (teamPicks.length === 0) {
+                const empty = document.createElement("li");
+                empty.className = "draft-team-empty";
+                empty.textContent = "No cars picked yet.";
+                roster.appendChild(empty);
+            } else {
+                teamPicks.forEach((pick) => {
+                    const item = document.createElement("li");
+                    item.className = "draft-team-car";
+
+                    const identity = document.createElement("strong");
+                    identity.textContent =
+                        `#${pick.carNumber} — ${pick.driverName}`;
+
+                    const stats = document.createElement("span");
+
+                    if (
+                        Number.isInteger(pick.autoMovement) &&
+                        Number.isInteger(pick.bonusMovement)
+                    ) {
+                        stats.textContent =
+                            `Movement: ${pick.autoMovement} / ` +
+                            `Bonus: ${pick.bonusMovement}`;
+                    } else {
+                        stats.textContent = "Movement stats unavailable";
+                    }
+
+                    item.append(identity, stats);
+                    roster.appendChild(item);
+                });
+            }
+
+            team.append(heading, roster);
+            draftTeamList.appendChild(team);
+        });
+
+        if (playersToDisplay.length === 0) {
+            const empty = document.createElement("p");
+            empty.textContent = "Waiting for players...";
+            draftTeamList.appendChild(empty);
+        }
+
         picks.forEach((pick) => {
             const item = document.createElement("li");
             item.textContent =
@@ -521,8 +586,18 @@ document.addEventListener("DOMContentLoaded", () => {
          */
         draftCarList.replaceChildren();
 
+        // Show the strongest movement cars first.
+        // Ties are broken by bonus movement, then car number.
         const availableCars = Array.isArray(draft.availableCars)
-            ? draft.availableCars
+            ? [...draft.availableCars].sort((a, b) =>
+                (b.autoMovement - a.autoMovement) ||
+                (b.bonusMovement - a.bonusMovement) ||
+                String(a.number).localeCompare(
+                    String(b.number),
+                    undefined,
+                    { numeric: true, sensitivity: "base" }
+                )
+            )
             : [];
         const canPick =
             draft.status === "in-progress" &&
@@ -552,8 +627,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const stats = document.createElement("p");
             stats.className = "draft-car-stats";
             stats.textContent =
-                `Auto movement: ${car.autoMovement} · ` +
-                `Bonus movement: ${car.bonusMovement}`;
+                `Movement: ${car.autoMovement} / Bonus: ${car.bonusMovement}`;
 
             const button = document.createElement("button");
             button.type = "button";

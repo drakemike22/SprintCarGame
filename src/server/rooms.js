@@ -1063,7 +1063,9 @@ class RoomManager {
                     pickNumber: pick.pickNumber,
                     playerName: playerNames.get(pick.playerId),
                     carNumber: car?.number ?? null,
-                    driverName: car?.driverName ?? null
+                    driverName: car?.driverName ?? null,
+                    autoMovement: car?.autoMovement ?? null,
+                    bonusMovement: car?.bonusMovement ?? null
                 };
             }),
 
