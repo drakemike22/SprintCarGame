@@ -223,6 +223,145 @@ test("a room cannot start until every player is ready", () => {
     assert.equal(Object.hasOwn(room.players[0], "id"), false);
 });
 
+test("draft order waits for every player to submit an initial roll", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(host.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    const internalRoom = manager.rooms.get(host.room.code);
+
+    // The first roll is recorded, but the order is not resolved yet.
+    manager.submitDraftRoll(host.room.code, host.playerId, 3);
+
+    assert.equal(
+        internalRoom.season.draft.status,
+        "waiting-for-order"
+    );
+
+    // The second roll completes the set and resolves the order.
+    manager.submitDraftRoll(host.room.code, guest.playerId, 5);
+
+    assert.equal(
+        internalRoom.season.draft.status,
+        "in-progress"
+    );
+    assert.deepEqual(
+        internalRoom.season.draft.order,
+        [guest.playerId, host.playerId]
+    );
+});
+
+test("draft rolls reject invalid values, duplicate rolls, and outsiders", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(host.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    expectRoomError(
+        () => manager.submitDraftRoll(host.room.code, host.playerId, 0),
+        "INVALID_DRAFT_ROLL"
+    );
+
+    manager.submitDraftRoll(host.room.code, host.playerId, 4);
+
+    expectRoomError(
+        () => manager.submitDraftRoll(host.room.code, host.playerId, 6),
+        "DRAFT_ROLL_ALREADY_SUBMITTED"
+    );
+
+    expectRoomError(
+        () => manager.submitDraftRoll(host.room.code, "not-a-player", 2),
+        "PLAYER_NOT_IN_ROOM"
+    );
+});
+
+test("tied-high initial rolls leave the draft waiting for a tie-breaker", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(host.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    const internalRoom = manager.rooms.get(host.room.code);
+
+    manager.submitDraftRoll(host.room.code, host.playerId, 5);
+    manager.submitDraftRoll(host.room.code, guest.playerId, 5);
+
+    assert.equal(
+        internalRoom.season.draft.status,
+        "waiting-for-order"
+    );
+    assert.deepEqual(
+        internalRoom.season.draft.pendingTieIds,
+        [host.playerId, guest.playerId]
+    );
+});
+
+test("tied players resolve draft order by submitting rerolls", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(host.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    const internalRoom = manager.rooms.get(host.room.code);
+
+    manager.submitDraftRoll(host.room.code, host.playerId, 5);
+    manager.submitDraftRoll(host.room.code, guest.playerId, 5);
+
+    // The first tie-breaker roll must wait for the other tied player.
+    manager.submitDraftReroll(host.room.code, host.playerId, 2);
+
+    assert.equal(
+        internalRoom.season.draft.status,
+        "waiting-for-order"
+    );
+
+    // The guest's higher reroll resolves the order.
+    manager.submitDraftReroll(host.room.code, guest.playerId, 6);
+
+    assert.equal(
+        internalRoom.season.draft.status,
+        "in-progress"
+    );
+    assert.deepEqual(
+        internalRoom.season.draft.order,
+        [guest.playerId, host.playerId]
+    );
+});
+
+test("draft rerolls reject non-tied players and duplicate submissions", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host");
+    const guest = manager.joinRoom(host.room.code, "Guest");
+    const third = manager.joinRoom(host.room.code, "Third");
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(host.room.code, guest.playerId, true);
+    manager.setReady(host.room.code, third.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    // Host and guest tie for the highest initial roll.
+    manager.submitDraftRoll(host.room.code, host.playerId, 5);
+    manager.submitDraftRoll(host.room.code, guest.playerId, 5);
+    manager.submitDraftRoll(host.room.code, third.playerId, 2);
+
+    expectRoomError(
+        () => manager.submitDraftReroll(host.room.code, third.playerId, 4),
+        "DRAFT_PLAYER_NOT_TIED"
+    );
+
+    manager.submitDraftReroll(host.room.code, host.playerId, 3);
+
+    expectRoomError(
+        () => manager.submitDraftReroll(host.room.code, host.playerId, 6),
+        "DRAFT_REROLL_ALREADY_SUBMITTED"
+    );
+});
+
 test("a non-host cannot start a room", () => {
     const { manager, host, guest } = createTwoPlayerRoom();
 
@@ -363,4 +502,164 @@ test("non-object room settings are rejected", () => {
             "INVALID_ROOM_SETTINGS"
         );
     }
+});
+
+
+test("started room snapshots expose safe draft data without internal IDs", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(guest.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    manager.submitDraftRoll(host.room.code, host.playerId, 2);
+    const result = manager.submitDraftRoll(
+        host.room.code,
+        guest.playerId,
+        6
+    );
+
+    const draft = result.draft;
+    const serialized = JSON.stringify(result);
+
+    assert.equal(draft.status, "in-progress");
+    assert.equal(draft.totalPicks, 32);
+    assert.equal(draft.completedPicks, 0);
+    assert.deepEqual(draft.order, ["Guest", "Host"]);
+    assert.equal(draft.nextPicker, "Guest");
+
+    assert.equal(draft.rolls.length, 2);
+    assert.equal(draft.rolls[0].playerName, "Host");
+    assert.equal(draft.rolls[0].initialRoll, 2);
+    assert.equal(draft.rolls[1].playerName, "Guest");
+    assert.equal(draft.rolls[1].initialRoll, 6);
+
+    assert.equal(draft.availableCars.length, 32);
+    assert.ok(
+        draft.availableCars.every((car) =>
+            typeof car.number === "string" &&
+            typeof car.driverName === "string" &&
+            Number.isInteger(car.autoMovement) &&
+            Number.isInteger(car.bonusMovement)
+        )
+    );
+
+    assert.equal(Object.hasOwn(result, "season"), false);
+    assert.equal(Object.hasOwn(draft.availableCars[0], "id"), false);
+    assert.equal(serialized.includes(host.playerId), false);
+    assert.equal(serialized.includes(guest.playerId), false);
+});
+
+test("draft car picks assign ownership and advance the picker", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(guest.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    // Guest wins the initial draft roll and picks first.
+    manager.submitDraftRoll(host.room.code, host.playerId, 2);
+    const draftStarted = manager.submitDraftRoll(
+        host.room.code,
+        guest.playerId,
+        6
+    );
+
+    const selectedCar = draftStarted.draft.availableCars[0];
+    const result = manager.selectCar(
+        host.room.code,
+        guest.playerId,
+        selectedCar.number
+    );
+
+    assert.equal(result.draft.completedPicks, 1);
+    assert.equal(result.draft.picks[0].pickNumber, 1);
+    assert.equal(result.draft.picks[0].playerName, "Guest");
+    assert.equal(result.draft.picks[0].carNumber, selectedCar.number);
+    assert.equal(result.draft.nextPicker, "Host");
+
+    // The selected car disappears from the available-car list.
+    assert.equal(
+        result.draft.availableCars.some(
+            (car) => car.number === selectedCar.number
+        ),
+        false
+    );
+
+    // Public snapshots must not reveal internal IDs.
+    assert.equal(Object.hasOwn(result.draft.picks[0], "carId"), false);
+    assert.equal(JSON.stringify(result).includes(guest.playerId), false);
+});
+
+test("draft car picks reject invalid and already-picked car numbers", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(guest.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    manager.submitDraftRoll(host.room.code, host.playerId, 2);
+    const started = manager.submitDraftRoll(
+        host.room.code,
+        guest.playerId,
+        6
+    );
+
+    const selectedCar = started.draft.availableCars[0];
+
+    expectRoomError(
+        () => manager.selectCar(host.room.code, guest.playerId, ""),
+        "INVALID_CAR_NUMBER"
+    );
+
+    expectRoomError(
+        () => manager.selectCar(
+            host.room.code,
+            guest.playerId,
+            "NOT-A-REAL-CAR"
+        ),
+        "UNKNOWN_CAR"
+    );
+
+    manager.selectCar(
+        host.room.code,
+        guest.playerId,
+        selectedCar.number
+    );
+
+    expectRoomError(
+        () => manager.selectCar(
+            host.room.code,
+            host.playerId,
+            selectedCar.number
+        ),
+        "CAR_ALREADY_OWNED"
+    );
+});
+
+test("draft car picks reject a player who is out of turn", () => {
+    const { manager, host, guest } = createTwoPlayerRoom();
+
+    manager.setReady(host.room.code, host.playerId, true);
+    manager.setReady(guest.room.code, guest.playerId, true);
+    manager.startRoom(host.room.code, host.playerId);
+
+    manager.submitDraftRoll(host.room.code, host.playerId, 2);
+    const started = manager.submitDraftRoll(
+        host.room.code,
+        guest.playerId,
+        6
+    );
+
+    const selectedCar = started.draft.availableCars[0];
+
+    // Guest rolled higher, so the host cannot make the first pick.
+    expectRoomError(
+        () => manager.selectCar(
+            host.room.code,
+            host.playerId,
+            selectedCar.number
+        ),
+        "NOT_YOUR_TURN"
+    );
 });

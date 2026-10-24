@@ -382,3 +382,188 @@ test("POST /api/rooms rejects invalid room settings", async () => {
         assert.equal(data.error.code, "INVALID_MAX_PLAYERS");
     });
 });
+test("draft roll API resolves order after every player rolls", async () => {
+    await withServer(async (baseUrl) => {
+        const host = await createRoom(baseUrl);
+        const guest = await joinRoom(
+            baseUrl,
+            host.data.room.code
+        );
+
+        // Both players must be ready before the host can start.
+        for (const player of [host, guest]) {
+            const ready = await fetch(
+                `${baseUrl}/api/rooms/${host.data.room.code}/ready`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Player-Id": player.data.playerId
+                    },
+                    body: JSON.stringify({ ready: true })
+                }
+            );
+
+            assert.equal(ready.status, 200);
+        }
+
+        const start = await fetch(
+            `${baseUrl}/api/rooms/${host.data.room.code}/start`,
+            {
+                method: "POST",
+                headers: {
+                    "X-Player-Id": host.data.playerId
+                }
+            }
+        );
+
+        assert.equal(start.status, 200);
+
+        // The first roll must not resolve the order by itself.
+        const firstRoll = await fetch(
+            `${baseUrl}/api/rooms/${host.data.room.code}/draft/roll`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Player-Id": host.data.playerId
+                },
+                body: JSON.stringify({ roll: 2 })
+            }
+        );
+
+        assert.equal(firstRoll.status, 200);
+
+        // The guest's higher roll completes the initial round.
+        const secondRoll = await fetch(
+            `${baseUrl}/api/rooms/${host.data.room.code}/draft/roll`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Player-Id": guest.data.playerId
+                },
+                body: JSON.stringify({ roll: 6 })
+            }
+        );
+
+        assert.equal(secondRoll.status, 200);
+    });
+});
+test("draft pick API assigns a car and advances the draft", async () => {
+    await withServer(async (baseUrl) => {
+        const host = await createRoom(baseUrl);
+        const guest = await joinRoom(
+            baseUrl,
+            host.data.room.code
+        );
+        const roomCode = host.data.room.code;
+
+        // Both players must be ready before the host can start.
+        for (const player of [host, guest]) {
+            const ready = await fetch(
+                `${baseUrl}/api/rooms/${roomCode}/ready`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Player-Id": player.data.playerId
+                    },
+                    body: JSON.stringify({ ready: true })
+                }
+            );
+
+            assert.equal(ready.status, 200);
+        }
+
+        // Start the season and initialize the draft.
+        const start = await fetch(
+            `${baseUrl}/api/rooms/${roomCode}/start`,
+            {
+                method: "POST",
+                headers: {
+                    "X-Player-Id": host.data.playerId
+                }
+            }
+        );
+
+        assert.equal(start.status, 200);
+
+        // The host rolls first.
+        const firstRoll = await fetch(
+            `${baseUrl}/api/rooms/${roomCode}/draft/roll`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Player-Id": host.data.playerId
+                },
+                body: JSON.stringify({ roll: 2 })
+            }
+        );
+
+        assert.equal(firstRoll.status, 200);
+
+        // The guest rolls higher and earns the first pick.
+        const secondRoll = await fetch(
+            `${baseUrl}/api/rooms/${roomCode}/draft/roll`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Player-Id": guest.data.playerId
+                },
+                body: JSON.stringify({ roll: 6 })
+            }
+        );
+
+        assert.equal(secondRoll.status, 200);
+
+        const beforePick = await readJson(secondRoll);
+        const carNumber =
+            beforePick.room.draft.availableCars[0].number;
+
+        // The guest selects an available car by its public car number.
+        const pickResponse = await fetch(
+            `${baseUrl}/api/rooms/${roomCode}/draft/pick`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Player-Id": guest.data.playerId
+                },
+                body: JSON.stringify({ carNumber })
+            }
+        );
+
+        assert.equal(pickResponse.status, 200);
+
+        const pickData = await readJson(pickResponse);
+        const draft = pickData.room.draft;
+
+        // Verify the pick was recorded correctly.
+        assert.equal(draft.completedPicks, 1);
+        assert.equal(draft.picks.length, 1);
+        assert.equal(draft.picks[0].playerName, "Guest");
+        assert.equal(draft.picks[0].carNumber, carNumber);
+
+        // The selected car must no longer be available.
+        assert.equal(
+            draft.availableCars.some(
+                (car) => car.number === carNumber
+            ),
+            false
+        );
+
+        // The snake draft should advance to the next picker.
+        assert.equal(draft.nextPicker, "Host");
+
+        // The public snapshot must not expose internal player IDs.
+        assert.equal(
+            JSON.stringify(pickData.room).includes(
+                guest.data.playerId
+            ),
+            false
+        );
+    });
+});

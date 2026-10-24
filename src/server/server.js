@@ -287,6 +287,63 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
+                // POST /api/rooms/:code/draft/roll — submit initial draft roll.
+        const draftRollMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/draft\/roll$/
+        );
+
+        if (method === "POST" && draftRollMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.submitDraftRoll(
+                decodeRoomCode(draftRollMatch[1]),
+                playerId,
+                body.roll
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/draft/reroll — break a tied draft roll.
+        const draftRerollMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/draft\/reroll$/
+        );
+
+        if (method === "POST" && draftRerollMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.submitDraftReroll(
+                decodeRoomCode(draftRerollMatch[1]),
+                playerId,
+                body.roll
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/draft/pick — select a car by number.
+        const draftPickMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/draft\/pick$/
+        );
+
+        if (method === "POST" && draftPickMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.selectCar(
+                decodeRoomCode(draftPickMatch[1]),
+                playerId,
+                body.carNumber
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
 
         sendJson(response, 404, {
             error: {

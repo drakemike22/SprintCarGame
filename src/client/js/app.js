@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Sprint Car Showdown - Browser Interactions
  * ------------------------------------------
  * Connects the website to the multiplayer room API.
@@ -48,6 +48,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const startSeasonButton = document.getElementById("start-season");
     const leaveLobbyButton = document.getElementById("leave-lobby");
 
+    /*
+     * Draft screen elements.
+     */
+    const draftRoomCode = document.getElementById("draft-room-code");
+    const draftProgress = document.getElementById("draft-progress");
+    const draftNextPicker = document.getElementById("draft-next-picker");
+    const draftStageDescription = document.getElementById("draft-stage-description");
+    const draftRollButton = document.getElementById("draft-roll-button");
+    const draftRerollButton = document.getElementById("draft-reroll-button");
+    const draftFeedback = document.getElementById("draft-feedback");
+    const draftRollList = document.getElementById("draft-roll-list");
+    const draftPickHistory = document.getElementById("draft-pick-history");
+    const draftCarHelp = document.getElementById("draft-car-help");
+    const draftCarList = document.getElementById("draft-car-list");
+
     const requiredElements = [
         createOwnerNameInput,
         joinOwnerNameInput,
@@ -66,7 +81,18 @@ document.addEventListener("DOMContentLoaded", () => {
         lobbyFeedback,
         toggleReadyButton,
         startSeasonButton,
-        leaveLobbyButton
+        leaveLobbyButton,
+        draftRoomCode,
+        draftProgress,
+        draftNextPicker,
+        draftStageDescription,
+        draftRollButton,
+        draftRerollButton,
+        draftFeedback,
+        draftRollList,
+        draftPickHistory,
+        draftCarHelp,
+        draftCarList
     ];
 
     if (requiredElements.some((element) => element === null)) {
@@ -300,6 +326,369 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     /*
+     * Display a message in the draft screen.
+     */
+    function showDraftFeedback(message, state = "info") {
+        showFeedback(message, state, draftFeedback);
+    }
+
+    /*
+     * Render the draft using only the server's public room snapshot.
+     * Submitted but unresolved dice values are never generated or displayed
+     * by this client; the server only provides submission status until they
+     * can safely be revealed.
+     */
+    function renderDraft(room) {
+        const draft = room?.draft;
+        const you = room?.players?.find((player) => player.isYou);
+
+        draftRoomCode.textContent = room?.code ?? "------";
+
+        if (!draft) {
+            draftProgress.textContent = "Waiting for draft data";
+            draftNextPicker.textContent = "Not determined";
+            draftStageDescription.textContent =
+                "The server has not provided draft information yet.";
+            draftRollButton.hidden = true;
+            draftRerollButton.hidden = true;
+            draftRollList.replaceChildren();
+            draftPickHistory.replaceChildren();
+            draftCarList.replaceChildren();
+            return;
+        }
+
+        const completedPicks = Number.isInteger(draft.completedPicks)
+            ? draft.completedPicks
+            : 0;
+        const totalPicks = Number.isInteger(draft.totalPicks)
+            ? draft.totalPicks
+            : 0;
+
+        draftProgress.textContent =
+            draft.status === "complete"
+                ? `Complete — ${completedPicks} of ${totalPicks} picks`
+                : `${completedPicks} of ${totalPicks} picks`;
+
+        draftNextPicker.textContent =
+            draft.status === "complete"
+                ? "Draft complete"
+                : draft.nextPicker || "Not determined";
+
+        const pendingTiedPlayers = Array.isArray(draft.pendingTiedPlayers)
+            ? draft.pendingTiedPlayers
+            : [];
+        const initialSubmissions = Array.isArray(draft.rollSubmissionStatus)
+            ? draft.rollSubmissionStatus
+            : [];
+        const rerollSubmissions = Array.isArray(draft.rerollSubmissionStatus)
+            ? draft.rerollSubmissionStatus
+            : [];
+        const resolvedRolls = Array.isArray(draft.rolls)
+            ? draft.rolls
+            : [];
+        const draftOrder = Array.isArray(draft.order) ? draft.order : [];
+
+        const initialSubmission = initialSubmissions.find(
+            (entry) => entry.playerName === you?.name
+        );
+        const rerollSubmission = rerollSubmissions.find(
+            (entry) => entry.playerName === you?.name
+        );
+
+        const isWaitingForOrder = draft.status === "waiting-for-order";
+        const isTiedPlayer = pendingTiedPlayers.includes(you?.name);
+        const hasSubmittedInitialRoll = Boolean(initialSubmission?.submitted);
+        const hasSubmittedReroll = Boolean(rerollSubmission?.submitted);
+
+        draftRollButton.hidden =
+            !isWaitingForOrder ||
+            pendingTiedPlayers.length > 0 ||
+            hasSubmittedInitialRoll ||
+            !you;
+        draftRollButton.disabled = isRequestInProgress;
+
+        draftRerollButton.hidden =
+            !isWaitingForOrder ||
+            !isTiedPlayer ||
+            hasSubmittedReroll ||
+            !you;
+        draftRerollButton.disabled = isRequestInProgress;
+
+        if (draft.status === "complete") {
+            draftStageDescription.textContent =
+                "The draft is complete. All selected cars are recorded.";
+        } else if (pendingTiedPlayers.length > 0) {
+            draftStageDescription.textContent = isTiedPlayer
+                ? hasSubmittedReroll
+                    ? "Your tie-breaker roll is submitted. Waiting for the other tied players."
+                    : "You are tied for draft order. Roll again to break the tie."
+                : "The tied players are rolling again to determine draft order.";
+        } else if (isWaitingForOrder) {
+            draftStageDescription.textContent = hasSubmittedInitialRoll
+                ? "Your initial roll is submitted. Waiting for the other players."
+                : "Each player rolls one six-sided die. Rolls stay hidden until everyone has submitted.";
+        } else {
+            draftStageDescription.textContent =
+                draft.nextPicker === you?.name
+                    ? "It is your turn. Choose one available car."
+                    : `Waiting for ${draft.nextPicker || "the next picker"} to select a car.`;
+        }
+
+        /*
+         * Show resolved rolls only. While a roll round is incomplete,
+         * show submission status without revealing its value.
+         */
+        draftRollList.replaceChildren();
+
+        const playersToDisplay = draftOrder.length > 0
+            ? draftOrder
+            : (room.players || []).map((player) => player.name);
+
+        playersToDisplay.forEach((playerName, index) => {
+            const item = document.createElement("li");
+            item.className = "draft-roll-item";
+
+            const name = document.createElement("strong");
+            name.textContent = draftOrder.length > 0
+                ? `${index + 1}. ${playerName}`
+                : playerName;
+
+            const details = document.createElement("span");
+            const resolved = resolvedRolls.find(
+                (entry) => entry.playerName === playerName
+            );
+
+            if (resolved) {
+                const rerollText = Array.isArray(resolved.rerolls) &&
+                    resolved.rerolls.length > 0
+                    ? ` · Rerolls: ${resolved.rerolls.join(", ")}`
+                    : "";
+
+                details.textContent =
+                    `Initial roll: ${resolved.initialRoll}${rerollText}`;
+            } else if (pendingTiedPlayers.includes(playerName)) {
+                const submission = rerollSubmissions.find(
+                    (entry) => entry.playerName === playerName
+                );
+
+                details.textContent = submission?.submitted
+                    ? "Tie-breaker roll submitted"
+                    : "Waiting to reroll";
+            } else {
+                const submission = initialSubmissions.find(
+                    (entry) => entry.playerName === playerName
+                );
+
+                details.textContent = submission?.submitted
+                    ? "Initial roll submitted"
+                    : "Waiting to roll";
+            }
+
+            item.append(name, details);
+            draftRollList.appendChild(item);
+        });
+
+        if (playersToDisplay.length === 0) {
+            const item = document.createElement("li");
+            item.textContent = "Waiting for players...";
+            draftRollList.appendChild(item);
+        }
+
+        /*
+         * Show each completed pick in server-confirmed order.
+         */
+        draftPickHistory.replaceChildren();
+
+        const picks = Array.isArray(draft.picks) ? draft.picks : [];
+
+        picks.forEach((pick) => {
+            const item = document.createElement("li");
+            item.textContent =
+                `Pick ${pick.pickNumber}: ${pick.playerName} selected ` +
+                `#${pick.carNumber} — ${pick.driverName}`;
+            draftPickHistory.appendChild(item);
+        });
+
+        if (picks.length === 0) {
+            const item = document.createElement("li");
+            item.textContent = "No cars picked yet.";
+            draftPickHistory.appendChild(item);
+        }
+
+        /*
+         * Available cars come from the server. Only the current picker
+         * may use the buttons, and the server still validates every pick.
+         */
+        draftCarList.replaceChildren();
+
+        const availableCars = Array.isArray(draft.availableCars)
+            ? draft.availableCars
+            : [];
+        const canPick =
+            draft.status === "in-progress" &&
+            draft.nextPicker === you?.name &&
+            !isRequestInProgress;
+
+        draftCarHelp.textContent =
+            draft.status === "complete"
+                ? "The draft is finished."
+                : draft.status !== "in-progress"
+                    ? "Available cars can be selected after draft order is established."
+                    : draft.nextPicker === you?.name
+                        ? "Choose a car to make your pick."
+                        : `Waiting for ${draft.nextPicker || "the next picker"}.`;
+
+        availableCars.forEach((car) => {
+            const card = document.createElement("article");
+            card.className = "draft-car-card";
+
+            const carNumber = document.createElement("h3");
+            carNumber.textContent = `#${car.number}`;
+
+            const driver = document.createElement("p");
+            driver.className = "draft-car-driver";
+            driver.textContent = car.driverName;
+
+            const stats = document.createElement("p");
+            stats.className = "draft-car-stats";
+            stats.textContent =
+                `Auto movement: ${car.autoMovement} · ` +
+                `Bonus movement: ${car.bonusMovement}`;
+
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "button button-primary draft-pick-button";
+            button.dataset.carNumber = car.number;
+            button.textContent = `Pick #${car.number}`;
+            button.disabled = !canPick;
+
+            card.append(carNumber, driver, stats, button);
+            draftCarList.appendChild(card);
+        });
+
+        if (availableCars.length === 0) {
+            const item = document.createElement("p");
+            item.textContent = draft.status === "complete"
+                ? "The draft is complete. No unpicked cars remain."
+                : "No available cars were returned by the server.";
+            draftCarList.appendChild(item);
+        }
+    }
+
+    /*
+     * Submit one draft action to the authoritative server.
+     *
+     * The browser generates the die value, but the server validates it,
+     * records the submission, and determines whether the draft can advance.
+     */
+    async function submitDraftAction(endpoint, payload, successMessage) {
+        if (isRequestInProgress) {
+            return;
+        }
+
+        const roomCode = currentRoom?.code || getSavedRoomCode();
+
+        if (!roomCode || currentRoom?.status !== "started") {
+            showDraftFeedback(
+                "The active draft room could not be found. Refresh the page and try again.",
+                "error"
+            );
+            return;
+        }
+
+        isRequestInProgress = true;
+
+        if (currentRoom?.draft) {
+            renderDraft(currentRoom);
+        }
+
+        showDraftFeedback("Submitting your action...", "info");
+
+        try {
+            const data = await requestJson(
+                `/api/rooms/${encodeURIComponent(roomCode)}${endpoint}`,
+                {
+                    method: "POST",
+                    headers: getPlayerHeaders(),
+                    body: JSON.stringify(payload)
+                }
+            );
+
+            renderRoom(data.room);
+            showDraftFeedback(successMessage, "success");
+        } catch (error) {
+            showDraftFeedback(
+                error.message || "The draft action could not be completed.",
+                "error"
+            );
+        } finally {
+            isRequestInProgress = false;
+
+            if (currentRoom?.status === "started") {
+                renderDraft(currentRoom);
+            }
+        }
+    }
+
+    /*
+     * Submit the initial draft-order roll.
+     */
+    draftRollButton.addEventListener("click", () => {
+        const roll = Math.floor(Math.random() * 6) + 1;
+
+        submitDraftAction(
+            "/draft/roll",
+            { roll },
+            "Your initial roll was submitted. The server will reveal the rolls when everyone has submitted."
+        );
+    });
+
+    /*
+     * Only players tied for the highest initial roll should see this button.
+     * The server independently checks that the player is allowed to reroll.
+     */
+    draftRerollButton.addEventListener("click", () => {
+        const roll = Math.floor(Math.random() * 6) + 1;
+
+        submitDraftAction(
+            "/draft/reroll",
+            { roll },
+            "Your tie-breaker roll was submitted. Waiting for the other tied players."
+        );
+    });
+
+    /*
+     * Handle car-pick button clicks using one listener on the car list.
+     */
+    draftCarList.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-car-number]");
+
+        if (!button || !draftCarList.contains(button)) {
+            return;
+        }
+
+        if (button.disabled || isRequestInProgress) {
+            return;
+        }
+
+        const carNumber = button.dataset.carNumber;
+
+        if (typeof carNumber !== "string" || carNumber.length === 0) {
+            showDraftFeedback(
+                "That car button is missing its car number. Refresh the draft and try again.",
+                "error"
+            );
+            return;
+        }
+
+        submitDraftAction(
+            "/draft/pick",
+            { carNumber },
+            `Your pick of car #${carNumber} was recorded.`
+        );
+    });
+
+    /*
      * Render one server-provided room snapshot.
      */
     function renderRoom(room) {
@@ -353,11 +742,13 @@ document.addEventListener("DOMContentLoaded", () => {
             !room.allPlayersReady;
 
         if (room.status === "started") {
-            showLobbyFeedback(
-                "The room has started. Connecting this to the race screen " +
-                "is the next game-engine milestone.",
-                "success"
-            );
+            renderDraft(room);
+
+            if (window.location.hash !== "#draft") {
+                navigateToPage("draft");
+            }
+        } else if (window.location.hash === "#draft") {
+            navigateToPage("lobby");
         }
     }
 
@@ -379,8 +770,15 @@ document.addEventListener("DOMContentLoaded", () => {
      */
     function openLobby(room, message) {
         renderRoom(room);
-        navigateToPage("lobby");
-        showLobbyFeedback(message, "success");
+
+        if (room.status === "started") {
+            navigateToPage("draft");
+            showDraftFeedback(message, "success");
+        } else {
+            navigateToPage("lobby");
+            showLobbyFeedback(message, "success");
+        }
+
         startLobbyPolling();
     }
 
@@ -737,7 +1135,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const requestedPage = window.location.hash.slice(1) || "home";
         showPage(requestedPage);
 
-        if (requestedPage === "lobby" && getSavedRoomCode()) {
+        if (
+            (requestedPage === "lobby" || requestedPage === "draft") &&
+            getSavedRoomCode()
+        ) {
             startLobbyPolling();
             refreshRoom({ quiet: true });
         } else {
@@ -768,7 +1169,11 @@ document.addEventListener("DOMContentLoaded", () => {
             );
 
             renderRoom(data.room);
-            navigateToPage("lobby");
+
+            navigateToPage(
+                data.room.status === "started" ? "draft" : "lobby"
+            );
+
             startLobbyPolling();
         } catch (error) {
             stopLobbyPolling();

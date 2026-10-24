@@ -105,6 +105,13 @@ class RoomManager {
             code,
             status: "waiting",
             season: null,
+
+            // Initial draft rolls submitted by each player.
+            draftRollSubmissions: {},
+
+            // Tie-breaker rolls submitted by players still tied.
+            draftRerollSubmissions: {},
+
             hostPlayerId: playerId,
             createdAt: Date.now(),
 
@@ -281,6 +288,247 @@ class RoomManager {
 
         return this.createRoomSnapshot(room, playerId);
     }
+    /*
+     * Accept one initial draft die roll from each player.
+     *
+     * The server waits for every player before resolving the order.
+     * The existing Draft model handles ranking and tied-high rolls.
+     */
+    submitDraftRoll(rawCode, playerId, roll) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before draft rolls can begin.",
+                409
+            );
+        }
+
+        if (room.season.draft.status !== "waiting-for-order") {
+            throw new RoomError(
+                "DRAFT_ROLLING_CLOSED",
+                "Initial draft rolls are no longer being accepted.",
+                409
+            );
+        }
+
+        if (!Number.isInteger(roll) || roll < 1 || roll > 6) {
+            throw new RoomError(
+                "INVALID_DRAFT_ROLL",
+                "A draft die roll must be a whole number from 1 to 6."
+            );
+        }
+
+        if (
+            Object.hasOwn(
+                room.draftRollSubmissions,
+                player.id
+            )
+        ) {
+            throw new RoomError(
+                "DRAFT_ROLL_ALREADY_SUBMITTED",
+                "You have already submitted your initial draft roll.",
+                409
+            );
+        }
+
+        // Record only this authenticated player's own submission.
+        room.draftRollSubmissions[player.id] = roll;
+
+        // Do not resolve the order until every player has rolled.
+        const allPlayersRolled = room.players.every(
+            (roomPlayer) =>
+                Object.hasOwn(
+                    room.draftRollSubmissions,
+                    roomPlayer.id
+                )
+        );
+
+        if (allPlayersRolled) {
+            const rolls = room.season.players.map(
+                (seasonPlayer) =>
+                    room.draftRollSubmissions[seasonPlayer.id]
+            );
+
+            room.season.draft.setInitialRolls(rolls);
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Collect tie-breaker rolls from players who are still tied.
+     *
+     * A reroll round resolves only after every currently tied
+     * player has submitted one valid roll.
+     */
+    submitDraftReroll(rawCode, playerId, roll) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before draft rerolls can begin.",
+                409
+            );
+        }
+
+        const draft = room.season.draft;
+        const tiedPlayerIds = draft.pendingTieIds;
+
+        if (!tiedPlayerIds || tiedPlayerIds.length < 2) {
+            throw new RoomError(
+                "DRAFT_REROLL_NOT_AVAILABLE",
+                "There is no unresolved draft-order tie.",
+                409
+            );
+        }
+
+        if (!tiedPlayerIds.includes(player.id)) {
+            throw new RoomError(
+                "DRAFT_PLAYER_NOT_TIED",
+                "Only players who are still tied may reroll.",
+                403
+            );
+        }
+
+        if (!Number.isInteger(roll) || roll < 1 || roll > 6) {
+            throw new RoomError(
+                "INVALID_DRAFT_ROLL",
+                "A draft die roll must be a whole number from 1 to 6."
+            );
+        }
+
+        if (
+            Object.hasOwn(
+                room.draftRerollSubmissions,
+                player.id
+            )
+        ) {
+            throw new RoomError(
+                "DRAFT_REROLL_ALREADY_SUBMITTED",
+                "You have already submitted your reroll.",
+                409
+            );
+        }
+
+        room.draftRerollSubmissions[player.id] = roll;
+
+        // Wait until every player in the current tie has rerolled.
+        const allTiedPlayersRolled = tiedPlayerIds.every(
+            (tiedPlayerId) =>
+                Object.hasOwn(
+                    room.draftRerollSubmissions,
+                    tiedPlayerId
+                )
+        );
+
+        if (allTiedPlayersRolled) {
+            const rollsByPlayerId = {};
+
+            for (const tiedPlayerId of tiedPlayerIds) {
+                rollsByPlayerId[tiedPlayerId] =
+                    room.draftRerollSubmissions[tiedPlayerId];
+            }
+
+            draft.rerollTie(rollsByPlayerId);
+
+            // A new round must accept fresh rolls, even if the
+            // same players remain tied.
+            room.draftRerollSubmissions = {};
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Select a car during the draft using its public car number.
+     *
+     * The server resolves that number to the internal car ID.
+     * Season remains responsible for enforcing pick order and
+     * recording ownership.
+     */
+    selectCar(rawCode, playerId, carNumber) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before cars can be picked.",
+                409
+            );
+        }
+
+        if (typeof carNumber !== "string" || !carNumber.trim()) {
+            throw new RoomError(
+                "INVALID_CAR_NUMBER",
+                "Choose a valid car number."
+            );
+        }
+
+        const requestedNumber = carNumber.trim();
+
+        // Only resolve numbers from this season's official roster.
+        const car = room.season.cars.find(
+            (rosterCar) => rosterCar.number === requestedNumber
+        );
+
+        if (!car) {
+            throw new RoomError(
+                "UNKNOWN_CAR",
+                "That car number is not in this season's roster.",
+                404
+            );
+        }
+
+        if (Object.hasOwn(room.season.carOwners, car.id)) {
+            throw new RoomError(
+                "CAR_ALREADY_OWNED",
+                "That car has already been picked.",
+                409
+            );
+        }
+
+        try {
+            room.season.selectCar(player.id, car.id);
+        } catch (error) {
+            // Convert game-engine validation failures into consistent
+            // room/API errors without exposing internal IDs.
+            if (error.message === "The draft is complete.") {
+                throw new RoomError(
+                    "DRAFT_COMPLETE",
+                    "All draft picks have been completed.",
+                    409
+                );
+            }
+
+            if (error.message === "The draft is not in progress.") {
+                throw new RoomError(
+                    "DRAFT_NOT_IN_PROGRESS",
+                    "The draft order must be resolved before picking cars.",
+                    409
+                );
+            }
+
+            if (error.message === "It is not this player's turn.") {
+                throw new RoomError(
+                    "NOT_YOUR_TURN",
+                    "It is not your turn to pick a car.",
+                    409
+                );
+            }
+
+            // Preserve unexpected errors instead of disguising defects.
+            throw error;
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
 
     /*
      * Validate room configuration.
@@ -442,8 +690,14 @@ class RoomManager {
      * Produce a safe view for one room member.
      * Never expose internal player IDs or mutable room objects.
      */
+        /*
+     * Build a safe public view of the room.
+     *
+     * Internal player IDs and the Season object stay on the server.
+     * Draft results are translated into display names for the clients.
+     */
     createRoomSnapshot(room, viewerPlayerId) {
-        return {
+        const snapshot = {
             code: room.code,
             status: room.status,
             playerCount: room.players.length,
@@ -459,6 +713,114 @@ class RoomManager {
                 isYou: player.id === viewerPlayerId
             }))
         };
+
+        // A waiting room has no season or draft to display yet.
+        if (!room.season) {
+            snapshot.draft = null;
+            return snapshot;
+        }
+
+        const season = room.season;
+        const draft = season.draft;
+
+        // Translate server-side player IDs into display names.
+        const playerNames = new Map(
+            room.players.map((player) => [
+                player.id,
+                player.name
+            ])
+        );
+
+        // Translate car IDs into their permanent car numbers.
+        const carsById = new Map(
+            season.cars.map((car) => [car.id, car])
+        );
+
+        const totalPicks =
+            Math.floor(
+                season.cars.length / season.players.length
+            ) * season.players.length;
+
+        const currentPickNumber = draft.picks.length + 1;
+
+        const nextPicker =
+            draft.status === "in-progress" &&
+            currentPickNumber <= totalPicks
+                ? playerNames.get(
+                    draft.getPlayerForPick(currentPickNumber)
+                ) ?? null
+                : null;
+
+        snapshot.draft = {
+            status: draft.status,
+            completedPicks: draft.picks.length,
+            totalPicks,
+            order: draft.order.map(
+                (playerId) => playerNames.get(playerId)
+            ),
+            nextPicker,
+
+            // These are resolved rolls only. Submitted but unresolved
+            // rolls remain private until the relevant round completes.
+            rolls: draft.orderRolls.map((entry) => ({
+                playerName: playerNames.get(entry.playerId),
+                initialRoll: entry.roll,
+                rerolls: [...entry.rerolls]
+            })),
+
+            pendingTiedPlayers: (draft.pendingTieIds ?? []).map(
+                (playerId) => playerNames.get(playerId)
+            ),
+
+            // Show whether each player has submitted without exposing
+            // the actual value of an unfinished roll.
+            rollSubmissionStatus: room.players.map((player) => ({
+                playerName: player.name,
+                submitted: Object.hasOwn(
+                    room.draftRollSubmissions,
+                    player.id
+                )
+            })),
+
+            rerollSubmissionStatus: (draft.pendingTieIds ?? []).map(
+                (playerId) => ({
+                    playerName: playerNames.get(playerId),
+                    submitted: Object.hasOwn(
+                        room.draftRerollSubmissions,
+                        playerId
+                    )
+                })
+            ),
+
+            picks: draft.picks.map((pick) => {
+                const car = carsById.get(pick.carId);
+
+                return {
+                    pickNumber: pick.pickNumber,
+                    playerName: playerNames.get(pick.playerId),
+                    carNumber: car?.number ?? null,
+                    driverName: car?.driverName ?? null
+                };
+            }),
+
+            // Car IDs stay private. The client can submit the permanent
+            // car number, which the server can resolve when picking.
+            availableCars: season.cars
+                .filter(
+                    (car) => !Object.hasOwn(
+                        season.carOwners,
+                        car.id
+                    )
+                )
+                .map((car) => ({
+                    number: car.number,
+                    driverName: car.driverName,
+                    autoMovement: car.autoMovement,
+                    bonusMovement: car.bonusMovement
+                }))
+        };
+
+        return snapshot;
     }
 }
 

@@ -215,6 +215,84 @@
                 </div>
             </section>
 
+            <!-- Draft screen shown after the room starts. -->
+            <section class="page-section draft-page"
+                     id="page-draft" data-page-section="draft"
+                     aria-labelledby="draft-title" hidden>
+                <p class="eyebrow">BUILD YOUR RACE TEAM</p>
+                <h1 id="draft-title">Car Draft</h1>
+                <p id="draft-intro">
+                    Roll to establish draft order, then take turns selecting
+                    your cars for the season.
+                </p>
+
+                <div class="draft-summary">
+                    <div>
+                        <span class="lobby-label">ROOM CODE</span>
+                        <strong id="draft-room-code">------</strong>
+                    </div>
+                    <div>
+                        <span class="lobby-label">DRAFT PROGRESS</span>
+                        <strong id="draft-progress">Waiting for draft data</strong>
+                    </div>
+                    <div>
+                        <span class="lobby-label">CURRENT PICKER</span>
+                        <strong id="draft-next-picker">Not determined</strong>
+                    </div>
+                </div>
+
+                <div class="draft-panel">
+                    <section class="draft-stage"
+                             aria-labelledby="draft-stage-title">
+                        <h2 id="draft-stage-title">Draft Order</h2>
+                        <p id="draft-stage-description">
+                            Each player rolls one six-sided die.
+                        </p>
+
+                        <div class="draft-actions">
+                            <button class="button button-primary"
+                                    id="draft-roll-button" type="button" hidden>
+                                ROLL FOR ORDER
+                            </button>
+                            <button class="button button-primary"
+                                    id="draft-reroll-button" type="button" hidden>
+                                REROLL TIE
+                            </button>
+                        </div>
+
+                        <p id="draft-feedback" class="feedback-message"
+                           role="status" aria-live="polite"></p>
+
+                        <div class="draft-order-section">
+                            <h3>Players and Rolls</h3>
+                            <ul id="draft-roll-list" class="draft-roll-list">
+                                <li>Waiting for draft data...</li>
+                            </ul>
+                        </div>
+
+                        <div class="draft-order-section">
+                            <h3>Pick History</h3>
+                            <ol id="draft-pick-history" class="draft-pick-history">
+                                <li>No cars picked yet.</li>
+                            </ol>
+                        </div>
+                    </section>
+
+                    <section class="draft-cars"
+                             aria-labelledby="draft-cars-title">
+                        <div class="draft-cars-heading">
+                            <h2 id="draft-cars-title">Available Cars</h2>
+                            <p id="draft-car-help">
+                                Cars will appear here when the draft order is set.
+                            </p>
+                        </div>
+
+                        <div id="draft-car-list" class="draft-car-list">
+                            <p>Waiting for the draft to begin...</p>
+                        </div>
+                    </section>
+                </div>
+            </section>
             <!-- Placeholder until multiple persistent games are supported. -->
             <section class="page-section placeholder-page" id="page-my-games"
                      data-page-section="my-games" aria-labelledby="my-games-title"
@@ -226,7 +304,7 @@
                     You'll be able to select a game to return to its lobby
                     or continue its season.
                 </p>
-                <span class="coming-soon">MULTIPLE GAMES â€” COMING SOON</span>
+                <span class="coming-soon">MULTIPLE GAMES - COMING SOON</span>
             </section>
 
             <!-- Tutorial content will be added with real gameplay examples. -->
@@ -239,7 +317,7 @@
                     Learn how to draft cars, roll the dice, choose your line,
                     survive race incidents, and compete for the championship.
                 </p>
-                <span class="coming-soon">GAMEPLAY GUIDES â€” COMING SOON</span>
+                <span class="coming-soon">GAMEPLAY GUIDES - COMING SOON</span>
             </section>
 
             <!-- Account details and historical results will come later. -->
@@ -252,7 +330,7 @@
                     Your account information, profile picture, past finishes,
                     and championship history will live here.
                 </p>
-                <span class="coming-soon">PLAYER PROFILES â€” COMING SOON</span>
+                <span class="coming-soon">PLAYER PROFILES - COMING SOON</span>
             </section>
         </main>
 
