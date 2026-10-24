@@ -345,6 +345,60 @@ async function handleApiRequest(request, response, url, roomManager) {
         }
 
 
+        // POST /api/rooms/:code/qualifying/next
+        const qualifyingNextMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/next$/
+        );
+
+        if (method === "POST" && qualifyingNextMatch) {
+            const playerId = getPlayerCredential(request);
+
+            const room = roomManager.startNextQualifyingRun(
+                decodeRoomCode(qualifyingNextMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/qualifying/roll
+        const qualifyingRollMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/roll$/
+        );
+
+        if (method === "POST" && qualifyingRollMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.recordQualifyingRoll(
+                decodeRoomCode(qualifyingRollMatch[1]),
+                playerId,
+                body.spaces
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/qualifying/finish
+        const qualifyingFinishMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/finish$/
+        );
+
+        if (method === "POST" && qualifyingFinishMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.finishQualifyingRun(
+                decodeRoomCode(qualifyingFinishMatch[1]),
+                playerId,
+                body.reason
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
         sendJson(response, 404, {
             error: {
                 code: "API_ROUTE_NOT_FOUND",

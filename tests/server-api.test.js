@@ -567,3 +567,180 @@ test("draft pick API assigns a car and advances the draft", async () => {
         );
     });
 });
+
+
+test("qualifying HTTP API enforces ownership and advances qualifying runs", async () => {
+    await withServer(async (baseUrl) => {
+        const host = await createRoom(baseUrl);
+        const guest = await joinRoom(baseUrl, host.data.room.code);
+        const roomCode = host.data.room.code;
+
+        const credentials = {
+            Host: host.data.playerId,
+            Guest: guest.data.playerId
+        };
+
+        async function post(path, playerId, body) {
+            const options = {
+                method: "POST",
+                headers: {
+                    "X-Player-Id": playerId
+                }
+            };
+
+            if (body !== undefined) {
+                options.headers["Content-Type"] = "application/json";
+                options.body = JSON.stringify(body);
+            }
+
+            const response = await fetch(
+                `${baseUrl}/api/rooms/${roomCode}/${path}`,
+                options
+            );
+
+            return {
+                response,
+                data: await readJson(response)
+            };
+        }
+
+        // Both players must be ready before the host starts the room.
+        for (const player of [host, guest]) {
+            const ready = await fetch(
+                `${baseUrl}/api/rooms/${roomCode}/ready`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Player-Id": player.data.playerId
+                    },
+                    body: JSON.stringify({ ready: true })
+                }
+            );
+
+            assert.equal(ready.status, 200);
+        }
+
+        const start = await post("start", host.data.playerId);
+        assert.equal(start.response.status, 200);
+
+        // Resolve the draft order.
+        const firstRoll = await post(
+            "draft/roll",
+            host.data.playerId,
+            { roll: 2 }
+        );
+        assert.equal(firstRoll.response.status, 200);
+
+        const secondRoll = await post(
+            "draft/roll",
+            guest.data.playerId,
+            { roll: 6 }
+        );
+        assert.equal(secondRoll.response.status, 200);
+
+        // Complete the draft by following the server's next-picker value.
+        let room = secondRoll.data.room;
+
+        while (room.draft.nextPicker !== null) {
+            const pickerId = credentials[room.draft.nextPicker];
+            const carNumber = room.draft.availableCars[0].number;
+
+            const pick = await post(
+                "draft/pick",
+                pickerId,
+                { carNumber }
+            );
+
+            assert.equal(pick.response.status, 200);
+            room = pick.data.room;
+        }
+
+        assert.equal(room.draft.completedPicks, 32);
+        assert.equal(room.event.phase, "qualifying");
+        assert.equal(room.event.qualifying.isComplete, false);
+
+        // Only the owner of the next car may start qualifying.
+        const nextCar = room.event.qualifying.nextCar;
+        const ownerId = credentials[nextCar.playerName];
+        const otherPlayerId = ownerId === host.data.playerId
+            ? guest.data.playerId
+            : host.data.playerId;
+
+        const rejectedStart = await post(
+            "qualifying/next",
+            otherPlayerId
+        );
+
+        assert.equal(rejectedStart.response.status, 403);
+        assert.equal(rejectedStart.data.error.code, "NOT_YOUR_CAR");
+
+        const runStart = await post("qualifying/next", ownerId);
+        assert.equal(runStart.response.status, 200);
+        assert.equal(
+            runStart.data.room.event.qualifying.activeRun.carNumber,
+            nextCar.carNumber
+        );
+
+        // The third roll should complete the run automatically.
+        for (const spaces of [4, 5, 6]) {
+            const roll = await post(
+                "qualifying/roll",
+                ownerId,
+                { spaces }
+            );
+
+            assert.equal(roll.response.status, 200);
+            room = roll.data.room;
+        }
+
+        assert.equal(room.event.qualifying.activeRun, null);
+        assert.equal(room.event.qualifying.completedRuns.length, 1);
+        assert.equal(
+            room.event.qualifying.completedRuns[0].distance,
+            15
+        );
+        assert.notEqual(room.event.qualifying.nextCar, null);
+
+        // Start the next car's run and finish it early for a wreck.
+        const secondCar = room.event.qualifying.nextCar;
+        const secondOwnerId = credentials[secondCar.playerName];
+
+        const secondStart = await post(
+            "qualifying/next",
+            secondOwnerId
+        );
+
+        assert.equal(secondStart.response.status, 200);
+
+        const earlyFinish = await post(
+            "qualifying/finish",
+            secondOwnerId,
+            { reason: "wreck" }
+        );
+
+        assert.equal(earlyFinish.response.status, 200);
+        assert.equal(
+            earlyFinish.data.room.event.qualifying.activeRun,
+            null
+        );
+        assert.equal(
+            earlyFinish.data.room.event.qualifying.completedRuns.length,
+            2
+        );
+        assert.equal(
+            earlyFinish.data.room.event.qualifying.completedRuns[1].finishReason,
+            "wreck"
+        );
+
+        // Public event snapshots must not expose internal player credentials.
+        assert.equal(
+            JSON.stringify(earlyFinish.data.room).includes(host.data.playerId),
+            false
+        );
+        assert.equal(
+            JSON.stringify(earlyFinish.data.room).includes(guest.data.playerId),
+            false
+        );
+    });
+});

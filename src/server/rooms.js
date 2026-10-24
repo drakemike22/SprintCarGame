@@ -526,10 +526,273 @@ class RoomManager {
             throw error;
         }
 
+        // Start the first event as soon as the final planned draft pick
+        // is recorded. The season engine owns the qualifying order.
+        if (
+            room.season.draft.status === "complete" &&
+            room.season.currentEvent === null
+        ) {
+            room.season.startFirstEvent();
+        }
+
         return this.createRoomSnapshot(room, player.id);
     }
 
 
+    /*
+     * Start the next qualifying run.
+     *
+     * Only the owner of the next car may start its run. The season
+     * engine remains responsible for the qualifying order.
+     */
+    startNextQualifyingRun(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before qualifying can begin.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+
+        if (!event || event.phase !== "qualifying") {
+            throw new RoomError(
+                "QUALIFYING_NOT_ACTIVE",
+                "The current event is not accepting qualifying runs.",
+                409
+            );
+        }
+
+        const session = event.qualifyingSession;
+
+        if (session.activeResult !== null) {
+            throw new RoomError(
+                "QUALIFYING_RUN_ACTIVE",
+                "The current qualifying run must finish first.",
+                409
+            );
+        }
+
+        const nextCarId = session.carIds[session.nextCarIndex];
+
+        if (!nextCarId) {
+            throw new RoomError(
+                "QUALIFYING_COMPLETE",
+                "Every car has completed qualifying.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[nextCarId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the next car may start its qualifying run.",
+                403
+            );
+        }
+
+        try {
+            room.season.startNextQualifyingRun();
+        } catch (error) {
+            if (
+                error.message ===
+                "The current qualifying run must finish first."
+            ) {
+                throw new RoomError(
+                    "QUALIFYING_RUN_ACTIVE",
+                    error.message,
+                    409
+                );
+            }
+
+            if (
+                error.message ===
+                "Every car has already completed qualifying."
+            ) {
+                throw new RoomError(
+                    "QUALIFYING_COMPLETE",
+                    error.message,
+                    409
+                );
+            }
+
+            throw error;
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Record one movement-distance result for the active qualifying car.
+     * The session automatically finishes a run after its third roll.
+     */
+    recordQualifyingRoll(rawCode, playerId, spaces) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before qualifying rolls can be recorded.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+
+        if (!event || event.phase !== "qualifying") {
+            throw new RoomError(
+                "QUALIFYING_NOT_ACTIVE",
+                "The current event is not accepting qualifying rolls.",
+                409
+            );
+        }
+
+        const activeResult = event.qualifyingSession.activeResult;
+
+        if (!activeResult) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_RUN",
+                "Start a qualifying run before recording a roll.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[activeResult.carId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the active car may record its qualifying roll.",
+                403
+            );
+        }
+
+        if (!Number.isInteger(spaces) || spaces < 0) {
+            throw new RoomError(
+                "INVALID_QUALIFYING_DISTANCE",
+                "Roll distance must be a nonnegative whole number."
+            );
+        }
+
+        try {
+            room.season.recordQualifyingRoll(spaces);
+        } catch (error) {
+            if (error.message === "There is no active qualifying run.") {
+                throw new RoomError(
+                    "NO_ACTIVE_QUALIFYING_RUN",
+                    error.message,
+                    409
+                );
+            }
+
+            if (
+                error.message ===
+                "The active qualifying run has already finished."
+            ) {
+                throw new RoomError(
+                    "QUALIFYING_RUN_FINISHED",
+                    error.message,
+                    409
+                );
+            }
+
+            if (
+                error.message ===
+                "A qualifying run cannot exceed three rolls."
+            ) {
+                throw new RoomError(
+                    "QUALIFYING_ROLL_LIMIT_REACHED",
+                    error.message,
+                    409
+                );
+            }
+
+            throw error;
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * End the active qualifying run early due to a wreck or mechanical
+     * failure. Normal completion is handled automatically on roll three.
+     */
+    finishQualifyingRun(rawCode, playerId, reason) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before qualifying can be finished.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+
+        if (!event || event.phase !== "qualifying") {
+            throw new RoomError(
+                "QUALIFYING_NOT_ACTIVE",
+                "The current event is not accepting qualifying finishes.",
+                409
+            );
+        }
+
+        const activeResult = event.qualifyingSession.activeResult;
+
+        if (!activeResult) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_RUN",
+                "There is no active qualifying run to finish.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[activeResult.carId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the active car may finish its qualifying run.",
+                403
+            );
+        }
+
+        if (reason !== "wreck" && reason !== "mechanical-failure") {
+            throw new RoomError(
+                "INVALID_QUALIFYING_FINISH_REASON",
+                "An early qualifying finish must be a wreck or mechanical failure."
+            );
+        }
+
+        try {
+            room.season.finishQualifyingRun(reason);
+        } catch (error) {
+            if (error.message === "There is no active qualifying run.") {
+                throw new RoomError(
+                    "NO_ACTIVE_QUALIFYING_RUN",
+                    error.message,
+                    409
+                );
+            }
+
+            if (
+                error.message ===
+                "An early qualifying finish must be a wreck or mechanical failure."
+            ) {
+                throw new RoomError(
+                    "INVALID_QUALIFYING_FINISH_REASON",
+                    error.message
+                );
+            }
+
+            throw error;
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
     /*
      * Validate room configuration.
      * Defaults keep existing createRoom(name) calls compatible.
@@ -717,6 +980,7 @@ class RoomManager {
         // A waiting room has no season or draft to display yet.
         if (!room.season) {
             snapshot.draft = null;
+            snapshot.event = null;
             return snapshot;
         }
 
@@ -819,6 +1083,87 @@ class RoomManager {
                     bonusMovement: car.bonusMovement
                 }))
         };
+
+        // Publish the current event using display-safe values only.
+        // Internal car IDs and player IDs must never enter this snapshot.
+        const currentEvent = season.currentEvent;
+
+        if (!currentEvent) {
+            snapshot.event = null;
+        } else {
+            const qualifyingSession =
+                currentEvent.qualifyingSession ?? null;
+
+            const toPublicQualifyingResult = (result) => {
+                const car = carsById.get(result.carId);
+                const ownerId = season.carOwners[result.carId];
+
+                return {
+                    carNumber: car?.number ?? null,
+                    driverName: car?.driverName ?? null,
+                    playerName: playerNames.get(ownerId) ?? null,
+                    rollsCompleted: result.rollsCompleted,
+                    distance: result.distance,
+                    isFinished: result.isFinished,
+                    finishReason: result.finishReason
+                };
+            };
+
+            let nextCar = null;
+            let activeRun = null;
+            let completedRuns = [];
+            let standings = null;
+
+            if (qualifyingSession) {
+                const nextCarId =
+                    qualifyingSession.carIds[
+                        qualifyingSession.nextCarIndex
+                    ];
+
+                if (nextCarId !== undefined) {
+                    const car = carsById.get(nextCarId);
+                    const ownerId = season.carOwners[nextCarId];
+
+                    nextCar = {
+                        carNumber: car?.number ?? null,
+                        driverName: car?.driverName ?? null,
+                        playerName: playerNames.get(ownerId) ?? null
+                    };
+                }
+
+                if (qualifyingSession.activeResult) {
+                    activeRun = toPublicQualifyingResult(
+                        qualifyingSession.activeResult
+                    );
+                }
+
+                completedRuns =
+                    qualifyingSession.completedResults.map(
+                        toPublicQualifyingResult
+                    );
+
+                if (qualifyingSession.isComplete) {
+                    standings = qualifyingSession.getResults().map(
+                        (result, index) => ({
+                            position: index + 1,
+                            ...toPublicQualifyingResult(result)
+                        })
+                    );
+                }
+            }
+
+            snapshot.event = {
+                eventNumber: currentEvent.eventNumber,
+                phase: currentEvent.phase,
+                qualifying: qualifyingSession ? {
+                    isComplete: qualifyingSession.isComplete,
+                    nextCar,
+                    activeRun,
+                    completedRuns,
+                    standings
+                } : null
+            };
+        }
 
         return snapshot;
     }

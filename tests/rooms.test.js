@@ -663,3 +663,153 @@ test("draft car picks reject a player who is out of turn", () => {
         "NOT_YOUR_TURN"
     );
 });
+
+
+/*
+ * Qualifying API manager tests
+ * ----------------------------
+ * These tests complete a real two-player draft before exercising the
+ * qualifying methods. The helper follows the public next-picker value
+ * instead of duplicating the draft's snake-order implementation.
+ */
+function createQualifyingRoom() {
+    const { manager, host, guest } = createTwoPlayerRoom();
+    const code = host.room.code;
+
+    manager.setReady(code, host.playerId, true);
+    manager.setReady(code, guest.playerId, true);
+    manager.startRoom(code, host.playerId);
+
+    manager.submitDraftRoll(code, host.playerId, 2);
+    let snapshot = manager.submitDraftRoll(code, guest.playerId, 6);
+
+    while (snapshot.draft && snapshot.draft.nextPicker) {
+        const pickerId = snapshot.draft.nextPicker === "Host"
+            ? host.playerId
+            : guest.playerId;
+
+        const carNumber = snapshot.draft.availableCars[0].number;
+
+        snapshot = manager.selectCar(code, pickerId, carNumber);
+    }
+
+    assert.equal(snapshot.status, "started");
+    assert.equal(snapshot.draft.completedPicks, 32);
+    assert.equal(snapshot.event.phase, "qualifying");
+    assert.equal(snapshot.event.qualifying.isComplete, false);
+
+    return { manager, host, guest, code, snapshot };
+}
+
+test("qualifying only allows the next car owner to start a run", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+    const otherPlayerId = ownerId === host.playerId
+        ? guest.playerId
+        : host.playerId;
+
+    expectRoomError(
+        () => manager.startNextQualifyingRun(code, otherPlayerId),
+        "NOT_YOUR_CAR"
+    );
+
+    const started = manager.startNextQualifyingRun(code, ownerId);
+
+    assert.equal(
+        started.event.qualifying.activeRun.carNumber,
+        nextCar.carNumber
+    );
+    assert.equal(started.event.qualifying.activeRun.rollsCompleted, 0);
+    assert.equal(started.event.qualifying.activeRun.distance, 0);
+
+    // Public run data must not expose internal player or car IDs.
+    assert.equal(
+        Object.hasOwn(started.event.qualifying.activeRun, "carId"),
+        false
+    );
+    assert.equal(
+        JSON.stringify(started).includes(ownerId),
+        false
+    );
+});
+
+test("qualifying rolls enforce ownership and valid distances", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+    const otherPlayerId = ownerId === host.playerId
+        ? guest.playerId
+        : host.playerId;
+
+    manager.startNextQualifyingRun(code, ownerId);
+
+    expectRoomError(
+        () => manager.recordQualifyingRoll(code, otherPlayerId, 4),
+        "NOT_YOUR_CAR"
+    );
+    expectRoomError(
+        () => manager.recordQualifyingRoll(code, ownerId, -1),
+        "INVALID_QUALIFYING_DISTANCE"
+    );
+    expectRoomError(
+        () => manager.recordQualifyingRoll(code, ownerId, 1.5),
+        "INVALID_QUALIFYING_DISTANCE"
+    );
+
+    const rolled = manager.recordQualifyingRoll(code, ownerId, 7);
+
+    assert.equal(rolled.event.qualifying.activeRun.rollsCompleted, 1);
+    assert.equal(rolled.event.qualifying.activeRun.distance, 7);
+});
+
+test("the third qualifying roll completes the run and advances qualifying", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+
+    manager.startNextQualifyingRun(code, ownerId);
+    manager.recordQualifyingRoll(code, ownerId, 4);
+    manager.recordQualifyingRoll(code, ownerId, 5);
+    const completed = manager.recordQualifyingRoll(code, ownerId, 6);
+
+    assert.equal(completed.event.qualifying.activeRun, null);
+    assert.equal(completed.event.qualifying.completedRuns.length, 1);
+    assert.equal(completed.event.qualifying.completedRuns[0].rollsCompleted, 3);
+    assert.equal(completed.event.qualifying.completedRuns[0].distance, 15);
+    assert.notEqual(completed.event.qualifying.nextCar, null);
+
+    // The next car is now available to start its qualifying run.
+    const next = completed.event.qualifying.completedRuns[0];
+    assert.equal(Object.hasOwn(next, "carId"), false);
+});
+
+test("qualifying runs can finish early for a wreck or mechanical failure", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+
+    manager.startNextQualifyingRun(code, ownerId);
+    manager.recordQualifyingRoll(code, ownerId, 8);
+
+    expectRoomError(
+        () => manager.finishQualifyingRun(code, ownerId, "invalid-reason"),
+        "INVALID_QUALIFYING_FINISH_REASON"
+    );
+
+    const finished = manager.finishQualifyingRun(code, ownerId, "wreck");
+
+    assert.equal(finished.event.qualifying.activeRun, null);
+    assert.equal(finished.event.qualifying.completedRuns.length, 1);
+    assert.equal(finished.event.qualifying.completedRuns[0].rollsCompleted, 1);
+    assert.equal(finished.event.qualifying.completedRuns[0].distance, 8);
+    assert.equal(finished.event.qualifying.completedRuns[0].finishReason, "wreck");
+});
