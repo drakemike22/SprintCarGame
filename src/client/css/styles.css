@@ -1550,3 +1550,487 @@ a {
         grid-template-columns: minmax(0, 1fr);
     }
 }
+/* =========================================================
+   Race screen layout
+   This is a display shell; live game data is connected later.
+   ========================================================= */
+
+.race-page {
+    color: #edf2f5;
+    max-width: 1600px;
+    margin: 0 auto;
+}
+
+.race-page-heading,
+.race-panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.race-page-heading {
+    margin-bottom: 24px;
+}
+
+.race-page-heading h1 {
+    margin: 0;
+}
+
+.race-subtitle,
+.race-muted,
+.race-control-hint {
+    color: #9eabb6;
+}
+
+.race-subtitle {
+    margin: 8px 0 0;
+}
+
+.race-connection-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    border: 1px solid #34434c;
+    border-radius: 999px;
+    padding: 9px 13px;
+    color: #b9c5cc;
+    background: #172129;
+    font-size: .85rem;
+    white-space: nowrap;
+}
+
+.race-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e1a64b;
+    box-shadow: 0 0 10px #e1a64b55;
+}
+
+.race-main-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 3.2fr) minmax(270px, 1fr);
+    gap: 18px;
+    align-items: stretch;
+}
+
+.race-track-panel,
+.race-info-panel,
+.race-bottom-panel {
+    min-width: 0;
+    border: 1px solid #303e47;
+    border-radius: 15px;
+    background: #172129;
+    box-shadow: 0 10px 26px #00000020;
+}
+
+.race-track-panel {
+    padding: 18px;
+}
+
+.race-panel-heading {
+    margin-bottom: 16px;
+}
+
+.race-panel-heading h2 {
+    margin: 0;
+    font-size: 1.05rem;
+}
+
+.race-panel-note {
+    color: #9eabb6;
+    font-size: .8rem;
+    text-align: right;
+}
+
+.race-track-viewport {
+    overflow: hidden;
+    border-radius: 12px;
+    background: #10191f;
+}
+
+.race-track-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 260px;
+}
+
+.track-background {
+    fill: #10191f;
+}
+
+.track-surface {
+    fill: #765b42;
+    stroke: #c0a07b;
+    stroke-width: 3;
+}
+
+.track-lane-line {
+    fill: none;
+    stroke: #e2c9a5;
+    stroke-width: 1.7;
+    opacity: .85;
+}
+
+.track-inner-boundary {
+    fill: #31533f;
+    stroke: #d1b48a;
+    stroke-width: 3;
+}
+
+.track-section-dividers line {
+    stroke: #e9d4b5;
+    stroke-width: 1.2;
+    opacity: .65;
+}
+
+.track-section-labels text {
+    fill: #fff1dc;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    paint-order: stroke;
+    stroke: #765b42;
+    stroke-width: 2px;
+    stroke-linejoin: round;
+}
+
+.track-infield-title {
+    fill: #e4eee5;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 2px;
+}
+
+.track-infield-subtitle {
+    fill: #b4c9b8;
+    font-size: 12px;
+}
+
+.track-start-finish line {
+    stroke: #ffffff;
+    stroke-width: 5;
+    stroke-dasharray: 5 4;
+}
+
+.race-track-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    padding: 15px 2px 0;
+    color: #aebbc3;
+    font-size: .78rem;
+}
+
+.race-track-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+}
+
+.legend-lane {
+    background: #b18a61;
+}
+
+.legend-divider {
+    background: #e9d4b5;
+}
+
+.legend-start {
+    background: #ffffff;
+}
+
+.race-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+.race-info-panel {
+    padding: 17px;
+}
+
+.race-segment-placeholder {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 14px;
+    border: 1px solid #34434c;
+    border-radius: 10px;
+    background: #111a20;
+}
+
+.race-info-label,
+.race-info-list dt {
+    color: #9eabb6;
+    font-size: .78rem;
+}
+
+.race-segment-placeholder strong {
+    font-size: 1.05rem;
+}
+
+.race-muted {
+    font-size: .76rem;
+    line-height: 1.45;
+}
+
+.race-info-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 13px;
+    margin: 17px 0 0;
+}
+
+.race-info-list div {
+    min-width: 0;
+}
+
+.race-info-list dt {
+    margin-bottom: 5px;
+}
+
+.race-info-list dd {
+    margin: 0;
+    font-size: .9rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.race-status-pill {
+    display: inline-block;
+    border: 1px solid #47555e;
+    border-radius: 999px;
+    padding: 4px 8px;
+    color: #c3cdd3;
+    font-size: .72rem;
+    font-weight: 600;
+}
+
+.race-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 112px;
+    gap: 7px;
+    text-align: center;
+    color: #aab7bf;
+}
+
+.race-empty-state p {
+    margin: 0;
+    color: #dbe2e6;
+    font-size: .88rem;
+    font-weight: 650;
+}
+
+.race-empty-state > span:last-child {
+    max-width: 250px;
+    font-size: .76rem;
+    line-height: 1.45;
+}
+
+.race-empty-icon {
+    color: #d1a36c;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.race-events-panel {
+    flex: 1;
+}
+
+.race-bottom-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, .95fr);
+    gap: 18px;
+    margin-top: 18px;
+    align-items: stretch;
+}
+
+.race-bottom-panel {
+    padding: 18px;
+}
+
+.race-bottom-empty {
+    min-height: 120px;
+}
+
+.race-dice-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+}
+
+.race-die-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+    padding: 12px 6px;
+    border: 1px solid #394851;
+    border-radius: 10px;
+    background: #111a20;
+}
+
+.race-die-card span {
+    color: #aab7bf;
+    font-size: .72rem;
+    text-align: center;
+}
+
+.race-die-card strong {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 1px solid #4c5b64;
+    border-radius: 9px;
+    background: #202e37;
+    color: #f1f4f6;
+    font-size: 1.2rem;
+}
+
+.race-control-hint {
+    min-height: 40px;
+    margin: 13px 0;
+    font-size: .78rem;
+    line-height: 1.5;
+}
+
+.race-primary-button {
+    width: 100%;
+    border: 1px solid #47545d;
+    border-radius: 9px;
+    padding: 11px 14px;
+    background: #29363e;
+    color: #9eabb6;
+    font: inherit;
+    font-size: .85rem;
+    font-weight: 700;
+    cursor: not-allowed;
+}
+
+@media (max-width: 1100px) {
+    .race-main-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .race-sidebar {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .race-events-panel {
+        grid-column: 1 / -1;
+    }
+
+    .race-bottom-layout {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 680px) {
+    .race-page-heading {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .race-track-panel,
+    .race-info-panel,
+    .race-bottom-panel {
+        padding: 13px;
+    }
+
+    .race-track-svg {
+        min-height: 0;
+    }
+
+    .track-section-labels text {
+        font-size: 15px;
+    }
+
+    .race-sidebar,
+    .race-bottom-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .race-events-panel {
+        grid-column: auto;
+    }
+
+    .race-panel-note {
+        font-size: .72rem;
+    }
+}
+
+/* Track drawing: final geometry and specification colors */
+.race-track-svg .track-background {
+    fill: #172129;
+}
+
+.race-track-svg .track-surface {
+    fill: #986a43;
+    stroke: #000000;
+    stroke-width: 4;
+}
+
+.race-track-svg .lane-boundary {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 1.25;
+}
+
+.race-track-svg .track-lanes path:first-child,
+.race-track-svg .track-lanes path:last-child {
+    stroke: #000000;
+    stroke-width: 4;
+}
+
+.race-track-svg .track-infield {
+    fill: #172129;
+    stroke: #000000;
+    stroke-width: 4;
+}
+
+.race-track-svg .track-section-dividers line {
+    stroke: #ffffff;
+    stroke-width: 1;
+    opacity: .95;
+}
+
+.race-track-svg .track-space-labels text {
+    fill: #000000;
+    stroke: none;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9px;
+    font-weight: 800;
+    pointer-events: none;
+}
+
+.race-track-svg .track-start-finish text {
+    fill: #ffffff;
+    stroke: none;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 8px;
+    font-weight: 800;
+}
+
+.race-page:not([hidden]) .race-track-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    aspect-ratio: 2 / 1;
+}
