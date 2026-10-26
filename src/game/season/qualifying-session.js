@@ -92,6 +92,30 @@ class QualifyingSession {
 
         return this.activeResult;
     }
+    
+    /*
+     * Records a server-generated qualifying movement turn.
+     *
+     * The result records its actual distance and ending position.
+     * The session then handles the normal three-roll completion.
+     */
+    recordMovementRoll({ spaces, finalPosition }) {
+        if (this.activeResult === null) {
+            throw new Error("There is no active qualifying run.");
+        }
+
+        const result = this.activeResult;
+
+        result.recordMovementRoll({ spaces, finalPosition });
+
+        if (result.isFinished) {
+            this.completedResults.push(result);
+            this.activeResult = null;
+        }
+
+        return result;
+    }
+
 
     finishCurrentRun(reason) {
         if (this.activeResult === null) {

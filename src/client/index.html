@@ -505,6 +505,7 @@
 <text x="518.50" y="385" transform="rotate(0 518.50 385)" text-anchor="middle" dominant-baseline="middle">29-2</text>
 <text x="518.50" y="415" transform="rotate(0 518.50 415)" text-anchor="middle" dominant-baseline="middle">29-3</text>
 </g>
+<g class="track-car-tokens" aria-label="Race car positions"></g>
 <g class="track-start-finish">
 <rect x="537" y="310" width="16" height="120" fill="#000000"/>
 <text x="545" y="370" transform="rotate(-90 545 370)" text-anchor="middle" dominant-baseline="middle">START/FINISH</text>
@@ -624,13 +625,50 @@
                                 <strong>—</strong>
                             </div>
                         </div>
-                        <p class="race-control-hint">
-                            Race controls will activate when the engine and turn state
-                            are connected.
+                        <div class="qualifying-controls" id="qualifying-controls" hidden>
+                        <p id="qualifying-status" role="status">
+                            Waiting for the next qualifying run.
                         </p>
-                        <button class="race-primary-button" type="button" disabled>
-                            Waiting for race engine
-                        </button>
+
+                        <div class="qualifying-next-car">
+                            <span class="race-info-label">Next car</span>
+                            <strong id="qualifying-next-car">Waiting</strong>
+                        </div>
+
+                        <p id="qualifying-roll-progress">Rolls completed: 0 of 3</p>
+
+                        <div class="qualifying-actions">
+                            <button id="qualifying-start-button" type="button">
+                                Start Qualifying Run
+                            </button>
+
+                            <button id="qualifying-roll-button" type="button" disabled>
+                                Roll Qualifying Die
+                            </button>
+
+                            <button id="qualifying-wreck-button" type="button" disabled>
+                                Wreck
+                            </button>
+
+                            <button id="qualifying-mechanical-button" type="button" disabled>
+                                Mechanical Failure
+                            </button>
+                        </div>
+
+                        <p id="qualifying-feedback" role="status" aria-live="polite"></p>
+
+                        <h3>Qualifying Results</h3>
+                        <ol id="qualifying-results"></ol>
+                    </div>
+
+                    <p class="race-control-hint" id="race-control-hint">
+                        Race controls will activate when a heat or feature race begins.
+                    </p>
+
+                    <button class="race-primary-button" type="button" disabled>
+                        Waiting for race engine
+                    </button>
+                        
                     </section>
 
                     <section class="race-bottom-panel" aria-labelledby="action-log-heading">

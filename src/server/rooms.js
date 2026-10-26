@@ -23,6 +23,11 @@ const crypto = require("node:crypto");
 const { Season } = require("../game/season/season");
 const { Player } = require("../game/season/player");
 const { cars } = require("../game/data/cars");
+const {
+    chooseTurnPosition,
+    resolveMechanicalSpinner,
+    resolveWreckSpinner
+} = require("../game/rules/turn");
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -625,6 +630,129 @@ class RoomManager {
 
         return this.createRoomSnapshot(room, player.id);
     }
+    
+    /*
+     * Starts the actual dice-and-movement turn for the active
+     * qualifying car. Only that car's owner may start its turn.
+     */
+    startQualifyingMovementTurn(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before qualifying movement begins.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+
+        if (!event || event.phase !== "qualifying") {
+            throw new RoomError(
+                "NOT_QUALIFYING",
+                "The event is not in the qualifying phase.",
+                409
+            );
+        }
+
+        const activeResult = event.qualifyingSession?.activeResult;
+
+        if (!activeResult) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_RUN",
+                "Start a qualifying run before starting its movement turn.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[activeResult.carId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the active car may start its qualifying turn.",
+                403
+            );
+        }
+
+        try {
+            room.season.startQualifyingMovementTurn();
+        } catch (error) {
+            throw new RoomError(
+                "QUALIFYING_MOVEMENT_START_FAILED",
+                error.message,
+                409
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+    
+    /*
+     * Applies one player-selected movement step during qualifying.
+     * Only the owner of the qualifying car may move it.
+     */
+    chooseQualifyingMovementPosition(rawCode, playerId, targetPosition) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before qualifying movement.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+
+        if (!event || event.phase !== "qualifying") {
+            throw new RoomError(
+                "NOT_QUALIFYING",
+                "Movement choices are only allowed during qualifying.",
+                409
+            );
+        }
+
+        const session = room.season.getQualifyingSession();
+        const result = session.activeResult;
+
+        if (!result || !result.movementTurn) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_MOVEMENT",
+                "Start the qualifying movement turn before choosing a space.",
+                409
+            );
+        }
+
+        const car = room.season.cars.find(
+            (item) => item.id === result.carId
+        );
+
+        if (!car || room.season.carOwners[result.carId] !== player.id) {
+            throw new RoomError(
+                "NOT_CAR_OWNER",
+                "Only the owner of this car may choose its movement.",
+                403
+            );
+        }
+
+        try {
+            result.movementTurn = chooseTurnPosition(
+                result.movementTurn,
+                targetPosition
+            );
+        } catch (error) {
+            throw new RoomError(
+                "INVALID_QUALIFYING_MOVE",
+                error.message,
+                400
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
 
     /*
      * Record one movement-distance result for the active qualifying car.
@@ -715,6 +843,167 @@ class RoomManager {
 
         return this.createRoomSnapshot(room, player.id);
     }
+    
+    /*
+     * Resolves a mechanical-wheel selection for qualifying.
+     * Mechanical failures end the run after preserving its distance.
+     */
+    resolveQualifyingMechanicalWheel(rawCode, playerId, slot) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const result = room.season?.currentEvent?.qualifyingSession?.activeResult;
+
+        if (!result?.movementTurn) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_MOVEMENT",
+                "There is no active qualifying movement turn.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[result.carId] !== player.id) {
+            throw new RoomError("NOT_YOUR_CAR", "Only the car owner may resolve its wheel.", 403);
+        }
+
+        try {
+            result.movementTurn = resolveMechanicalSpinner(
+                result.movementTurn,
+                slot
+            );
+
+            const outcome = result.movementTurn.mechanicalWheel.result;
+
+            if (outcome.consequence !== "none") {
+                this.recordQualifyingMovementRoll(rawCode, playerId);
+
+                const stillActive =
+                    room.season.currentEvent?.qualifyingSession?.activeResult;
+
+                if (stillActive) {
+                    room.season.finishQualifyingRun("mechanical-failure");
+                }
+            }
+        } catch (error) {
+            if (error instanceof RoomError) throw error;
+
+            throw new RoomError(
+                "QUALIFYING_MECHANICAL_WHEEL_FAILED",
+                error.message,
+                400
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Resolves a wreck-wheel selection for qualifying.
+     * A wreck ends the qualifying run after its traveled distance is saved.
+     */
+    resolveQualifyingWreckWheel(rawCode, playerId, slot) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const result = room.season?.currentEvent?.qualifyingSession?.activeResult;
+
+        if (!result?.movementTurn) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_MOVEMENT",
+                "There is no active qualifying movement turn.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[result.carId] !== player.id) {
+            throw new RoomError("NOT_YOUR_CAR", "Only the car owner may resolve its wheel.", 403);
+        }
+
+        try {
+            result.movementTurn = resolveWreckSpinner(
+                result.movementTurn,
+                slot
+            );
+
+            // Every qualifying wreck ends this run, regardless of the
+            // specific wreck-wheel consequence.
+            this.recordQualifyingMovementRoll(rawCode, playerId);
+
+            const stillActive =
+                room.season.currentEvent?.qualifyingSession?.activeResult;
+
+            if (stillActive) {
+                room.season.finishQualifyingRun("wreck");
+            }
+        } catch (error) {
+            if (error instanceof RoomError) throw error;
+
+            throw new RoomError(
+                "QUALIFYING_WRECK_WHEEL_FAILED",
+                error.message,
+                400
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    
+    /*
+     * Records a completed server-generated qualifying movement roll.
+     * The season calculates distance from the turn's movement history.
+     */
+    recordQualifyingMovementRoll(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before qualifying movement can be recorded.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+
+        if (!event || event.phase !== "qualifying") {
+            throw new RoomError(
+                "QUALIFYING_NOT_ACTIVE",
+                "The event is not in qualifying.",
+                409
+            );
+        }
+
+        const result = event.qualifyingSession?.activeResult;
+
+        if (!result || !result.movementTurn) {
+            throw new RoomError(
+                "NO_ACTIVE_QUALIFYING_MOVEMENT",
+                "There is no active qualifying movement turn.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[result.carId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the active car may record its movement.",
+                403
+            );
+        }
+
+        try {
+            room.season.recordQualifyingMovementRoll();
+        } catch (error) {
+            throw new RoomError(
+                "QUALIFYING_MOVEMENT_RECORD_FAILED",
+                error.message,
+                409
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
 
     /*
      * End the active qualifying run early due to a wreck or mechanical
@@ -1104,10 +1393,22 @@ class RoomManager {
                     carNumber: car?.number ?? null,
                     driverName: car?.driverName ?? null,
                     playerName: playerNames.get(ownerId) ?? null,
+                    isYours: ownerId === viewerPlayerId,
                     rollsCompleted: result.rollsCompleted,
                     distance: result.distance,
                     isFinished: result.isFinished,
-                    finishReason: result.finishReason
+                    finishReason: result.finishReason,
+                    movementTurn: result.movementTurn ? {
+                        status: result.movementTurn.status,
+                        position: result.movementTurn.position,
+                        dice: result.movementTurn.dice,
+                        movementRemaining: result.movementTurn.movementRemaining,
+                        laneChangesRemaining: result.movementTurn.laneChangesRemaining,
+                        legalNextPositions: result.movementTurn.legalNextPositions,
+                        mechanicalWheel: result.movementTurn.mechanicalWheel,
+                        wreckWheel: result.movementTurn.wreckWheel
+                    } : null
+
                 };
             };
 
@@ -1129,7 +1430,8 @@ class RoomManager {
                     nextCar = {
                         carNumber: car?.number ?? null,
                         driverName: car?.driverName ?? null,
-                        playerName: playerNames.get(ownerId) ?? null
+                        playerName: playerNames.get(ownerId) ?? null,
+                        isYours: ownerId === viewerPlayerId
                     };
                 }
 
@@ -1153,10 +1455,50 @@ class RoomManager {
                     );
                 }
             }
+            
+            // Publish live race data using display-safe values only.
+            // Never send internal car IDs or player IDs to the client.
+            const playerColorsById = new Map(
+                season.players.map((player) => [player.id, player.color])
+            );
+
+            const activeRaceRecord = currentEvent.activeRace ?? null;
+            const raceState = activeRaceRecord?.state ?? null;
+
+            const activeRace = raceState
+                ? {
+                    raceType: activeRaceRecord.raceType,
+                    heatNumber: activeRaceRecord.heatNumber ?? null,
+                    lapsToComplete:
+                        activeRaceRecord.lapsToComplete ?? null,
+                    status: raceState.status,
+                    yellowFlag: raceState.yellowFlag,
+                    cars: raceState.raceCars.map((raceCar) => {
+                        const car = carsById.get(raceCar.carId);
+                        const ownerId = season.carOwners[raceCar.carId];
+
+                        return {
+                            carNumber: car?.number ?? null,
+                            driverName: car?.driverName ?? null,
+                            playerName: playerNames.get(ownerId) ?? null,
+                            ownerColor: playerColorsById.get(ownerId) ?? null,
+                            position: {
+                                section: raceCar.position.section,
+                                lane: raceCar.position.lane
+                            },
+                            completedLaps: raceCar.completedLaps,
+                            distance: raceCar.distance,
+                            status: raceCar.status,
+                            mechanicalDamage: raceCar.mechanicalDamage
+                        };
+                    })
+                }
+                : null;
 
             snapshot.event = {
                 eventNumber: currentEvent.eventNumber,
                 phase: currentEvent.phase,
+                activeRace,
                 qualifying: qualifyingSession ? {
                     isComplete: qualifyingSession.isComplete,
                     nextCar,
@@ -1165,6 +1507,7 @@ class RoomManager {
                     standings
                 } : null
             };
+
         }
 
         return snapshot;

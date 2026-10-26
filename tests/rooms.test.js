@@ -813,3 +813,165 @@ test("qualifying runs can finish early for a wreck or mechanical failure", () =>
     assert.equal(finished.event.qualifying.completedRuns[0].distance, 8);
     assert.equal(finished.event.qualifying.completedRuns[0].finishReason, "wreck");
 });
+
+test("qualifying movement turns are created with server-generated dice", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+
+    manager.startNextQualifyingRun(code, ownerId);
+
+    const started = manager.startQualifyingMovementTurn(code, ownerId);
+    const turn = manager.rooms.get(code)
+        .season.currentEvent.qualifyingSession.activeResult.movementTurn;
+
+    assert.ok(turn);
+    assert.equal(typeof turn.dice.movement, "number");
+    assert.ok(turn.dice.movement >= 1 && turn.dice.movement <= 6);
+    assert.equal(typeof turn.dice.laneChange, "number");
+    assert.ok(turn.dice.laneChange >= 1 && turn.dice.laneChange <= 6);
+    assert.equal(typeof turn.dice.event, "number");
+    assert.ok(turn.dice.event >= 1 && turn.dice.event <= 6);
+
+    assert.ok(started.event.qualifying.activeRun);
+});
+
+test("qualifying movement choices reject another player's attempt", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+    const otherPlayerId = ownerId === host.playerId
+        ? guest.playerId
+        : host.playerId;
+
+    manager.startNextQualifyingRun(code, ownerId);
+    manager.startQualifyingMovementTurn(code, ownerId);
+
+    expectRoomError(
+        () => manager.chooseQualifyingMovementPosition(
+            code,
+            otherPlayerId,
+            { section: 0, lane: 2 }
+        ),
+        "NOT_CAR_OWNER"
+    );
+});
+
+test("qualifying movement records actual traveled spaces", () => {
+    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+    const nextCar = snapshot.event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host"
+        ? host.playerId
+        : guest.playerId;
+
+    manager.startNextQualifyingRun(code, ownerId);
+    manager.startQualifyingMovementTurn(code, ownerId);
+
+    const room = manager.rooms.get(code);
+    const result = room.season.currentEvent.qualifyingSession.activeResult;
+
+    while (result.movementTurn.status === "waiting-for-choice") {
+        const legalPosition = result.movementTurn.legalNextPositions[0];
+
+        assert.ok(legalPosition);
+
+        manager.chooseQualifyingMovementPosition(
+            code,
+            ownerId,
+            legalPosition
+        );
+    }
+
+    const expectedDistance = Math.max(
+        0,
+        result.movementTurn.history.length - 1
+    );
+
+    if (result.movementTurn.mechanicalWheel.status === "awaiting-spin") {
+        manager.resolveQualifyingMechanicalWheel(code, ownerId, 9);
+    } else if (result.movementTurn.wreckWheel.status === "awaiting-spin") {
+        manager.resolveQualifyingWreckWheel(code, ownerId, 9);
+    } else {
+        manager.recordQualifyingMovementRoll(code, ownerId);
+    }
+
+    const activeResult =
+        room.season.currentEvent.qualifyingSession.activeResult;
+
+    const recordedResult = activeResult ??
+        room.season.currentEvent.qualifyingSession.completedResults.at(-1);
+
+    assert.equal(recordedResult.distance, expectedDistance);
+    assert.equal(recordedResult.rollsCompleted, 1);
+
+    if (result.movementTurn.mechanicalWheel.status === "awaiting-spin") {
+        assert.equal(recordedResult.finishReason, "mechanical-failure");
+    }
+
+    if (result.movementTurn.wreckWheel.status === "awaiting-spin") {
+        assert.equal(recordedResult.finishReason, "wreck");
+    }
+});
+
+
+test("active race snapshots expose car positions without internal IDs", () => {
+    const { manager, host, code } = createQualifyingRoom();
+    const room = manager.rooms.get(code);
+
+    const car = room.season.cars[0];
+    const ownerId = room.season.carOwners[car.id];
+
+    room.season.currentEvent.activeRace = {
+        raceType: "heat",
+        heatNumber: 1,
+        lapsToComplete: 3,
+        state: {
+            status: "running",
+            yellowFlag: false,
+            raceCars: [{
+                carId: car.id,
+                position: { section: 29, lane: 2 },
+                completedLaps: 0,
+                distance: 0,
+                status: "running",
+                mechanicalDamage: "none"
+            }]
+        }
+    };
+
+    const snapshot = manager.getRoom(code, host.playerId);
+    const activeRace = snapshot.event.activeRace;
+
+    assert.equal(activeRace.raceType, "heat");
+    assert.equal(activeRace.heatNumber, 1);
+    assert.equal(activeRace.lapsToComplete, 3);
+    assert.equal(activeRace.cars.length, 1);
+    assert.deepEqual(activeRace.cars[0], {
+        carNumber: car.number,
+        driverName: car.driverName,
+        playerName: room.players.find(
+            (player) => player.id === ownerId
+        ).name,
+        ownerColor: room.season.players.find(
+            (player) => player.id === ownerId
+        ).color,
+        position: { section: 29, lane: 2 },
+        completedLaps: 0,
+        distance: 0,
+        status: "running",
+        mechanicalDamage: "none"
+    });
+
+    assert.equal(
+        JSON.stringify(activeRace).includes(car.id),
+        false
+    );
+    assert.equal(
+        JSON.stringify(activeRace).includes(ownerId),
+        false
+    );
+});

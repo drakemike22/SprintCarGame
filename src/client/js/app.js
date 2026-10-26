@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Sprint Car Showdown - Browser Interactions
  * ------------------------------------------
  * Connects the website to the multiplayer room API.
@@ -117,6 +117,218 @@ document.addEventListener("DOMContentLoaded", () => {
     let isRequestInProgress = false;
     let isRefreshing = false;
     let pollTimer = null;
+    /*
+     * Qualifying controls.
+     * The server remains authoritative for car ownership, run order,
+     * roll limits, and qualifying results.
+     */
+    const qualifyingControls =
+        document.getElementById("qualifying-controls");
+    const qualifyingStatus =
+        document.getElementById("qualifying-status");
+    const qualifyingNextCar =
+        document.getElementById("qualifying-next-car");
+    const qualifyingRollProgress =
+        document.getElementById("qualifying-roll-progress");
+    const qualifyingStartButton =
+        document.getElementById("qualifying-start-button");
+    const qualifyingRollButton =
+        document.getElementById("qualifying-roll-button");
+    const qualifyingWreckButton =
+        document.getElementById("qualifying-wreck-button");
+    const qualifyingMechanicalButton =
+        document.getElementById("qualifying-mechanical-button");
+    const qualifyingFeedback =
+        document.getElementById("qualifying-feedback");
+    const qualifyingResults =
+        document.getElementById("qualifying-results");
+    const raceControlHint =
+        document.getElementById("race-control-hint");
+
+    function setQualifyingFeedback(message, isError = false) {
+        qualifyingFeedback.textContent = message;
+        qualifyingFeedback.dataset.state = isError ? "error" : "info";
+    }
+
+    function renderQualifying(room) {
+        const event = room?.event;
+        const qualifying = event?.qualifying;
+        const isQualifying =
+            room?.status === "started" &&
+            event?.phase === "qualifying" &&
+            Boolean(qualifying);
+
+        qualifyingControls.hidden = !isQualifying;
+        raceControlHint.hidden = isQualifying;
+
+        if (!isQualifying) {
+            return;
+        }
+
+        const you = room.players.find((player) => player.isYou);
+        const activeRun = qualifying.activeRun;
+        const nextCar = qualifying.nextCar;
+
+        // The server calculates ownership for this viewer.
+        // Use the explicit flag instead of comparing display names.
+        const activeCarIsYours = Boolean(
+            activeRun?.isYours
+        );
+
+        const nextCarIsYours = Boolean(
+            !activeRun &&
+            nextCar?.isYours
+        );
+
+        qualifyingNextCar.textContent = activeRun
+            ? `#${activeRun.carNumber} ${activeRun.driverName} — ${activeRun.playerName}`
+            : nextCar
+                ? `#${nextCar.carNumber} ${nextCar.driverName} — ${nextCar.playerName}`
+                : "All qualifying runs complete";
+
+        qualifyingRollProgress.textContent = activeRun
+            ? `Rolls completed: ${activeRun.rollsCompleted} of 3`
+            : "Rolls completed: 0 of 3";
+
+        qualifyingStatus.textContent = qualifying.isComplete
+            ? "Qualifying is complete."
+            : activeRun
+                ? `Qualifying run in progress for car #${activeRun.carNumber}.`
+                : nextCar
+                    ? `Waiting for ${nextCar.playerName} to start car #${nextCar.carNumber}.`
+                    : "Waiting for qualifying results.";
+
+        qualifyingStartButton.hidden = Boolean(activeRun);
+        qualifyingStartButton.disabled =
+            isRequestInProgress ||
+            !nextCarIsYours ||
+            qualifying.isComplete;
+
+        qualifyingRollButton.disabled =
+            isRequestInProgress ||
+            !activeCarIsYours ||
+            !activeRun ||
+            activeRun.rollsCompleted >= 3;
+
+        qualifyingWreckButton.disabled =
+            isRequestInProgress || !activeCarIsYours;
+
+        qualifyingMechanicalButton.disabled =
+            isRequestInProgress || !activeCarIsYours;
+
+        if (qualifying.isComplete) {
+            qualifyingRollProgress.textContent =
+                "All cars have completed qualifying.";
+        }
+
+        qualifyingResults.replaceChildren();
+
+        const results = Array.isArray(qualifying.standings)
+            ? qualifying.standings
+            : Array.isArray(qualifying.completedRuns)
+                ? qualifying.completedRuns
+                : [];
+
+        results.forEach((result, index) => {
+            const item = document.createElement("li");
+            const position = result.position ?? index + 1;
+            const distance = Number.isFinite(result.distance)
+                ? ` — ${result.distance} spaces`
+                : "";
+
+            item.textContent =
+                `${position}. #${result.carNumber} ${result.driverName}` +
+                ` (${result.playerName})${distance}`;
+
+            qualifyingResults.appendChild(item);
+        });
+
+        if (results.length === 0) {
+            const item = document.createElement("li");
+            item.textContent = "No completed qualifying runs yet.";
+            qualifyingResults.appendChild(item);
+        }
+    }
+
+    async function submitQualifyingAction(endpoint, payload, successMessage) {
+        if (isRequestInProgress) {
+            return;
+        }
+
+        const roomCode = currentRoom?.code || getSavedRoomCode();
+
+        if (!roomCode || currentRoom?.status !== "started") {
+            setQualifyingFeedback(
+                "The active room could not be found. Refresh and try again.",
+                true
+            );
+            return;
+        }
+
+        isRequestInProgress = true;
+        renderQualifying(currentRoom);
+        setQualifyingFeedback("Submitting qualifying action...");
+
+        try {
+            const data = await requestJson(
+                `/api/rooms/${encodeURIComponent(roomCode)}${endpoint}`,
+                {
+                    method: "POST",
+                    headers: getPlayerHeaders(),
+                    body: JSON.stringify(payload)
+                }
+            );
+
+            renderRoom(data.room);
+            setQualifyingFeedback(successMessage);
+        } catch (error) {
+            setQualifyingFeedback(
+                error.message || "The qualifying action failed.",
+                true
+            );
+        } finally {
+            isRequestInProgress = false;
+
+            if (currentRoom) {
+                renderQualifying(currentRoom);
+            }
+        }
+    }
+
+    qualifyingStartButton.addEventListener("click", () => {
+        submitQualifyingAction(
+            "/qualifying/next",
+            {},
+            "Your qualifying run has started."
+        );
+    });
+
+    qualifyingRollButton.addEventListener("click", () => {
+        // A qualifying roll is a distance from 1 to 6 spaces.
+        const spaces = Math.floor(Math.random() * 6) + 1;
+
+        submitQualifyingAction(
+            "/qualifying/roll",
+            { spaces },
+            `Qualifying roll recorded: ${spaces} spaces.`
+        );
+    });
+
+    qualifyingWreckButton.addEventListener("click", () => {
+        submitQualifyingAction(
+            "/qualifying/finish",
+            { reason: "wreck" },
+            "Qualifying run ended due to a wreck."
+        );
+    });
+
+    qualifyingMechanicalButton.addEventListener("click", () => {
+        submitQualifyingAction(
+            "/qualifying/finish",
+            { reason: "mechanical-failure" },
+            "Qualifying run ended due to mechanical failure."
+        );
+    });
 
     /*
      * Display a message in the appropriate status area.
@@ -765,6 +977,114 @@ document.addEventListener("DOMContentLoaded", () => {
     /*
      * Render one server-provided room snapshot.
      */
+    /*
+     * Draw the cars reported by the server on the existing track.
+     * The track's own numbered SVG labels provide the coordinates,
+     * so the artwork and game geometry stay in sync.
+     */
+    function renderRaceTokens(room) {
+        const trackSvg = document.querySelector(".race-track-svg");
+        const tokenLayer = trackSvg?.querySelector(".track-car-tokens");
+
+        if (!trackSvg || !tokenLayer) {
+            return;
+        }
+
+        // Read the existing section-lane labels as the coordinate source.
+        const coordinates = new Map();
+
+        trackSvg.querySelectorAll(".track-space-labels text").forEach((label) => {
+            const match = label.textContent.trim().match(/^(\d+)-(\d+)$/);
+
+            if (!match) {
+                return;
+            }
+
+            coordinates.set(`${match[1]}-${match[2]}`, {
+                x: Number(label.getAttribute("x")),
+                y: Number(label.getAttribute("y"))
+            });
+        });
+
+        // Rebuild the layer from the latest snapshot, preventing stale tokens.
+        tokenLayer.replaceChildren();
+
+        const activeRace = room?.event?.activeRace;
+        if (!activeRace || !Array.isArray(activeRace.cars)) {
+            return;
+        }
+
+        const svgNamespace = "http://www.w3.org/2000/svg";
+        const carsAtSpace = new Map();
+
+        activeRace.cars.forEach((car) => {
+            // Retired cars stay in the race data but are off the track.
+            if (
+                car?.status !== "running" ||
+                !Number.isInteger(car.position?.section) ||
+                !Number.isInteger(car.position?.lane)
+            ) {
+                return;
+            }
+
+            const key = `${car.position.section}-${car.position.lane}`;
+            const point = coordinates.get(key);
+
+            if (!point) {
+                return;
+            }
+
+            const stackIndex = carsAtSpace.get(key) ?? 0;
+            carsAtSpace.set(key, stackIndex + 1);
+
+            // Small offsets keep any overlapping tokens distinguishable.
+            const offsetX = (stackIndex % 3) * 3 - 3;
+            const offsetY = Math.floor(stackIndex / 3) * 3;
+
+            const group = document.createElementNS(svgNamespace, "g");
+            group.setAttribute("class", "track-car-token");
+            group.setAttribute(
+                "transform",
+                `translate(${point.x + offsetX} ${point.y + offsetY})`
+            );
+
+            const title = document.createElementNS(svgNamespace, "title");
+            title.textContent = [
+                car.carNumber ? `Car ${car.carNumber}` : "Race car",
+                car.driverName,
+                car.playerName
+            ].filter(Boolean).join(" — ");
+
+            // Draw the owner's colored base underneath the car.
+            // The base color comes from the server's public race snapshot.
+            const base = document.createElementNS(svgNamespace, "ellipse");
+            base.setAttribute("cx", "0");
+            base.setAttribute("cy", "3");
+            base.setAttribute("rx", "9");
+            base.setAttribute("ry", "5");
+            base.style.fill = car.ownerColor ?? "#172129";
+            base.setAttribute("stroke", "#101820");
+            base.setAttribute("stroke-width", "1");
+
+            // Temporary car body; custom car artwork can replace this later.
+            const body = document.createElementNS(svgNamespace, "rect");
+            body.setAttribute("x", "-7");
+            body.setAttribute("y", "-7");
+            body.setAttribute("width", "14");
+            body.setAttribute("height", "10");
+            body.setAttribute("rx", "3");
+
+            const number = document.createElementNS(svgNamespace, "text");
+            number.setAttribute("x", "0");
+            number.setAttribute("y", "-2");
+            number.setAttribute("text-anchor", "middle");
+            number.setAttribute("dominant-baseline", "middle");
+            number.textContent = String(car.carNumber ?? "?");
+
+            group.append(title, base, body, number);
+            tokenLayer.appendChild(group);
+        });
+    }
     function renderRoom(room) {
         if (
             !room ||
@@ -779,6 +1099,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         currentRoom = room;
+        renderRaceTokens(room);
+        if (room.status === "started" && room.event) {
+            const requestedPage = window.location.hash.slice(1);
+
+            if (requestedPage !== "race") {
+                navigateToPage("race");
+            }
+        }
+        renderQualifying(room);
 
         lobbyRoomCode.textContent = room.code;
         lobbyPlayerCount.textContent =
@@ -814,16 +1143,27 @@ document.addEventListener("DOMContentLoaded", () => {
             !isWaiting ||
             room.playerCount < 2 ||
             !room.allPlayersReady;
-
-        if (room.status === "started") {
+        
+            if (room.status === "started") {
             renderDraft(room);
 
-            if (window.location.hash !== "#draft") {
+            // A started event has progressed beyond the draft.
+            // Keep it on the race page, which will display qualifying
+            // controls when qualifying is the active phase.
+            if (room.event) {
+                if (window.location.hash !== "#race") {
+                    navigateToPage("race");
+                }
+            } else if (
+                window.location.hash !== "#draft" &&
+                window.location.hash !== "#race"
+            ) {
                 navigateToPage("draft");
             }
         } else if (window.location.hash === "#draft") {
             navigateToPage("lobby");
         }
+
     }
 
     /*
@@ -846,7 +1186,7 @@ document.addEventListener("DOMContentLoaded", () => {
         renderRoom(room);
 
         if (room.status === "started") {
-            navigateToPage("draft");
+            navigateToPage(room.event ? "race" : "draft");
             showDraftFeedback(message, "success");
         } else {
             navigateToPage("lobby");
@@ -1210,7 +1550,11 @@ document.addEventListener("DOMContentLoaded", () => {
         showPage(requestedPage);
 
         if (
-            (requestedPage === "lobby" || requestedPage === "draft") &&
+            (
+                requestedPage === "lobby" ||
+                requestedPage === "draft" ||
+                requestedPage === "race"
+            ) &&
             getSavedRoomCode()
         ) {
             startLobbyPolling();
@@ -1245,7 +1589,11 @@ document.addEventListener("DOMContentLoaded", () => {
             renderRoom(data.room);
 
             navigateToPage(
-                data.room.status === "started" ? "draft" : "lobby"
+                data.room.status !== "started"
+                    ? "lobby"
+                    : data.room.event
+                        ? "race"
+                        : "draft"
             );
 
             startLobbyPolling();

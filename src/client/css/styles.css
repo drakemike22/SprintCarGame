@@ -2010,6 +2010,23 @@ a {
     opacity: .95;
 }
 
+/* Live car markers sit above the numbered track spaces. */
+.race-track-svg .track-car-token {
+    pointer-events: none;
+}
+.race-track-svg .track-car-token rect {
+    fill: #172129;
+    stroke: #f4d29b;
+    stroke-width: 1.5;
+}
+.race-track-svg .track-car-token text {
+    fill: #ffffff;
+    stroke: none;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 8px;
+    font-weight: 800;
+    pointer-events: none;
+}
 .race-track-svg .track-space-labels text {
     fill: #000000;
     stroke: none;

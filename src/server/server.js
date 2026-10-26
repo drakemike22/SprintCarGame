@@ -361,6 +361,100 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
+        
+        // POST /api/rooms/:code/qualifying/movement/start
+        const qualifyingMovementStartMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/movement\/start$/
+        );
+
+        if (method === "POST" && qualifyingMovementStartMatch) {
+            const playerId = getPlayerCredential(request);
+
+            const room = roomManager.startQualifyingMovementTurn(
+                decodeRoomCode(qualifyingMovementStartMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+        
+        // POST /api/rooms/:code/qualifying/movement/choose
+        const qualifyingMovementChooseMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/movement\/choose$/
+        );
+
+        if (method === "POST" && qualifyingMovementChooseMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.chooseQualifyingMovementPosition(
+                decodeRoomCode(qualifyingMovementChooseMatch[1]),
+                playerId,
+                body.targetPosition
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        
+        // POST /api/rooms/:code/qualifying/movement/record
+        const qualifyingMovementRecordMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/movement\/record$/
+        );
+
+        if (method === "POST" && qualifyingMovementRecordMatch) {
+            const playerId = getPlayerCredential(request);
+
+            const room = roomManager.recordQualifyingMovementRoll(
+                decodeRoomCode(qualifyingMovementRecordMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+        
+        // POST /api/rooms/:code/qualifying/mechanical-wheel
+        const qualifyingMechanicalWheelMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/mechanical-wheel$/
+        );
+
+        if (method === "POST" && qualifyingMechanicalWheelMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.resolveQualifyingMechanicalWheel(
+                decodeRoomCode(qualifyingMechanicalWheelMatch[1]),
+                playerId,
+                body.slot
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/qualifying/wreck-wheel
+        const qualifyingWreckWheelMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/wreck-wheel$/
+        );
+
+        if (method === "POST" && qualifyingWreckWheelMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.resolveQualifyingWreckWheel(
+                decodeRoomCode(qualifyingWreckWheelMatch[1]),
+                playerId,
+                body.slot
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+
 
         // POST /api/rooms/:code/qualifying/roll
         const qualifyingRollMatch = pathname.match(

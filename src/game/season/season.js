@@ -25,7 +25,7 @@ const { QualifyingSession } = require("./qualifying-session");
 const {
     createRaceResults
 } = require("../rules/race-results");
-
+const { createQualifyingTurn } = require("./qualifying-turn");
 const {
     createRaceFinishers
 } = require("../rules/race-finishers");
@@ -471,8 +471,49 @@ class Season {
      */
     startNextQualifyingRun() {
         const session = this.getQualifyingSession();
+        const result = session.startNextRun();
 
-        return session.startNextRun();
+        // The qualifying result owns the movement state for this run.
+        result.movementTurn = null;
+
+        return result;
+    }
+    
+    startQualifyingMovementTurn() {
+        const session = this.getQualifyingSession();
+        const result = session.activeResult;
+
+        if (!result) {
+            throw new Error("There is no active qualifying run.");
+        }
+
+        if (result.movementTurn?.status === "waiting-for-choice") {
+            throw new Error("The qualifying movement turn is already active.");
+        }
+
+        if (result.rollsCompleted >= 3) {
+            throw new Error("The qualifying run has already used all three rolls.");
+        }
+
+        const car = this.cars.find((item) => item.id === result.carId);
+
+        if (!car) {
+            throw new Error(
+                `No permanent car exists for qualifying car "${result.carId}".`
+            );
+        }
+
+        const currentPosition = result.qualifyingPosition ?? {
+            section: 29,
+            lane: 2
+        };
+
+        result.movementTurn = createQualifyingTurn({
+            car,
+            currentPosition
+        });
+
+        return result.movementTurn;
     }
 
     /*
@@ -506,6 +547,51 @@ class Season {
         this.syncQualifyingResults();
 
         return result;
+    }
+        /*
+     * Records a completed server-generated qualifying movement turn.
+     * The distance comes from actual movement history, not client input.
+     */
+    recordQualifyingMovementRoll() {
+        const session = this.getQualifyingSession();
+        const result = session.activeResult;
+
+        if (!result || !result.movementTurn) {
+            throw new Error("There is no active qualifying movement turn.");
+        }
+
+        const turn = result.movementTurn;
+
+        if (
+            turn.status !== "complete" &&
+            turn.status !== "stuck"
+        ) {
+            throw new Error(
+                "Qualifying movement must finish before its roll is recorded."
+            );
+        }
+
+        if (
+            turn.eventResolution?.status !== "resolved" ||
+            turn.mechanicalWheel?.status === "awaiting-spin" ||
+            turn.wreckWheel?.status === "awaiting-spin"
+        ) {
+            throw new Error(
+                "Resolve the qualifying event and any required wheel before recording the roll."
+            );
+        }
+
+        const spaces = Math.max(0, turn.history.length - 1);
+        const finalPosition = { ...turn.position };
+
+        const recordedResult = session.recordMovementRoll({
+            spaces,
+            finalPosition
+        });
+
+        this.syncQualifyingResults();
+
+        return recordedResult;
     }
 
     /*
