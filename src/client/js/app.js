@@ -150,6 +150,25 @@ document.addEventListener("DOMContentLoaded", () => {
         qualifyingFeedback.dataset.state = isError ? "error" : "info";
     }
 
+    const qualifyingMovementChoices = document.createElement("div");
+    qualifyingMovementChoices.id = "qualifying-movement-choices";
+    qualifyingMovementChoices.className = "qualifying-movement-choices";
+    qualifyingMovementChoices.setAttribute("aria-live", "polite");
+
+    qualifyingRollProgress.insertAdjacentElement(
+        "afterend",
+        qualifyingMovementChoices
+    );
+
+    const qualifyingDiceValues = (() => {
+        const cards = document.querySelectorAll(".race-dice-row .race-die-card");
+        return {
+            movement: document.getElementById("qualifying-movement-die"),
+            lane: document.getElementById("qualifying-lane-die"),
+            event: document.getElementById("qualifying-event-die")
+        };
+    })();
+
     function renderQualifying(room) {
         const event = room?.event;
         const qualifying = event?.qualifying;
@@ -162,23 +181,18 @@ document.addEventListener("DOMContentLoaded", () => {
         raceControlHint.hidden = isQualifying;
 
         if (!isQualifying) {
+            qualifyingMovementChoices.replaceChildren();
+            Object.values(qualifyingDiceValues).forEach((node) => {
+                if (node) node.textContent = "—";
+            });
             return;
         }
 
-        const you = room.players.find((player) => player.isYou);
         const activeRun = qualifying.activeRun;
         const nextCar = qualifying.nextCar;
-
-        // The server calculates ownership for this viewer.
-        // Use the explicit flag instead of comparing display names.
-        const activeCarIsYours = Boolean(
-            activeRun?.isYours
-        );
-
-        const nextCarIsYours = Boolean(
-            !activeRun &&
-            nextCar?.isYours
-        );
+        const turn = activeRun?.movementTurn;
+        const activeCarIsYours = Boolean(activeRun?.isYours);
+        const nextCarIsYours = Boolean(!activeRun && nextCar?.isYours);
 
         qualifyingNextCar.textContent = activeRun
             ? `#${activeRun.carNumber} ${activeRun.driverName} — ${activeRun.playerName}`
@@ -190,35 +204,120 @@ document.addEventListener("DOMContentLoaded", () => {
             ? `Rolls completed: ${activeRun.rollsCompleted} of 3`
             : "Rolls completed: 0 of 3";
 
+        if (turn?.dice) {
+            if (qualifyingDiceValues.movement) {
+                qualifyingDiceValues.movement.textContent = String(turn.dice.movement ?? "—");
+            }
+            if (qualifyingDiceValues.lane) {
+                qualifyingDiceValues.lane.textContent = String(turn.dice.laneChange ?? "—");
+            }
+            if (qualifyingDiceValues.event) {
+                qualifyingDiceValues.event.textContent = String(turn.dice.event ?? "—");
+            }
+        } else {
+            Object.values(qualifyingDiceValues).forEach((node) => {
+                if (node) node.textContent = "—";
+            });
+        }
+
+        const status = turn?.status;
+        const eventResolution = turn?.eventResolution;
+        const mechanicalWheel = turn?.mechanicalWheel;
+        const wreckWheel = turn?.wreckWheel;
+        const needsWheel =
+            mechanicalWheel?.status === "awaiting-spin" ||
+            wreckWheel?.status === "awaiting-spin" ||
+            eventResolution?.status === "awaiting-wheel";
+
         qualifyingStatus.textContent = qualifying.isComplete
             ? "Qualifying is complete."
-            : activeRun
-                ? `Qualifying run in progress for car #${activeRun.carNumber}.`
-                : nextCar
+            : !activeRun
+                ? nextCar
                     ? `Waiting for ${nextCar.playerName} to start car #${nextCar.carNumber}.`
-                    : "Waiting for qualifying results.";
+                    : "Waiting for qualifying results."
+                : !turn
+                    ? `Qualifying run in progress for car #${activeRun.carNumber}. Start the movement turn to roll the server dice.`
+                    : status === "waiting-for-choice"
+                        ? `Car #${activeRun.carNumber}: choose the next space.`
+                        : needsWheel
+                            ? "Resolve the required incident wheel before recording this roll."
+                            : status === "complete" || status === "stuck"
+                                ? "Movement finished. Record this qualifying roll."
+                                : `Qualifying run in progress for car #${activeRun.carNumber}.`;
 
-        qualifyingStartButton.hidden = Boolean(activeRun);
+        qualifyingStartButton.hidden = Boolean(turn);
+        qualifyingStartButton.textContent = "Start Movement Turn";
         qualifyingStartButton.disabled =
             isRequestInProgress ||
-            !nextCarIsYours ||
+            !activeCarIsYours && !nextCarIsYours ||
             qualifying.isComplete;
 
+        qualifyingRollButton.textContent = "Record Movement Roll";
         qualifyingRollButton.disabled =
             isRequestInProgress ||
             !activeCarIsYours ||
-            !activeRun ||
-            activeRun.rollsCompleted >= 3;
+            !turn ||
+            (status !== "complete" && status !== "stuck") ||
+            needsWheel;
 
-        qualifyingWreckButton.disabled =
-            isRequestInProgress || !activeCarIsYours;
+        // Until the wheel UI is connected, do not allow old shortcut buttons
+        // to bypass the server's incident-wheel resolution.
+        qualifyingWreckButton.hidden = true;
+        qualifyingMechanicalButton.hidden = true;
+        qualifyingWreckButton.disabled = true;
+        qualifyingMechanicalButton.disabled = true;
 
-        qualifyingMechanicalButton.disabled =
-            isRequestInProgress || !activeCarIsYours;
+        qualifyingMovementChoices.replaceChildren();
 
-        if (qualifying.isComplete) {
-            qualifyingRollProgress.textContent =
-                "All cars have completed qualifying.";
+        if (activeRun && turn && activeCarIsYours) {
+            const position = turn.position;
+            const positionLabel = document.createElement("p");
+            positionLabel.textContent = position
+                ? `Current space: section ${position.section}, lane ${position.lane}. ` +
+                  `Movement remaining: ${turn.movementRemaining ?? 0}; ` +
+                  `lane changes remaining: ${turn.laneChangesRemaining ?? 0}.`
+                : "Current position unavailable.";
+            qualifyingMovementChoices.appendChild(positionLabel);
+
+            if (status === "waiting-for-choice" && !needsWheel) {
+                const heading = document.createElement("h3");
+                heading.textContent = "Choose the next space";
+                qualifyingMovementChoices.appendChild(heading);
+
+                const choices = Array.isArray(turn.legalNextPositions)
+                    ? turn.legalNextPositions
+                    : [];
+
+                if (choices.length === 0) {
+                    const empty = document.createElement("p");
+                    empty.textContent = "No legal moves are available.";
+                    qualifyingMovementChoices.appendChild(empty);
+                }
+
+                choices.forEach((targetPosition) => {
+                    const button = document.createElement("button");
+                    button.type = "button";
+                    button.className = "qualifying-move-choice";
+                    button.disabled = isRequestInProgress;
+                    button.textContent =
+                        `Section ${targetPosition.section}, lane ${targetPosition.lane}`;
+
+                    button.addEventListener("click", () => {
+                        submitQualifyingAction(
+                            "/qualifying/movement/choose",
+                            { targetPosition },
+                            `Moved to section ${targetPosition.section}, lane ${targetPosition.lane}.`
+                        );
+                    });
+
+                    qualifyingMovementChoices.appendChild(button);
+                });
+            } else if (needsWheel) {
+                const notice = document.createElement("p");
+                notice.textContent =
+                    "An incident wheel is required. Wheel controls are not connected yet; do not record this roll.";
+                qualifyingMovementChoices.appendChild(notice);
+            }
         }
 
         qualifyingResults.replaceChildren();
@@ -249,7 +348,6 @@ document.addEventListener("DOMContentLoaded", () => {
             qualifyingResults.appendChild(item);
         }
     }
-
     async function submitQualifyingAction(endpoint, payload, successMessage) {
         if (isRequestInProgress) {
             return;
@@ -296,39 +394,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     qualifyingStartButton.addEventListener("click", () => {
+        const activeRun = currentRoom?.event?.qualifying?.activeRun;
+        const endpoint = activeRun
+            ? "/qualifying/movement/start"
+            : "/qualifying/next";
+
         submitQualifyingAction(
-            "/qualifying/next",
+            endpoint,
             {},
-            "Your qualifying run has started."
+            activeRun
+                ? "Server-generated movement dice rolled."
+                : "Your qualifying run has started."
         );
     });
 
     qualifyingRollButton.addEventListener("click", () => {
-        // A qualifying roll is a distance from 1 to 6 spaces.
-        const spaces = Math.floor(Math.random() * 6) + 1;
-
         submitQualifyingAction(
-            "/qualifying/roll",
-            { spaces },
-            `Qualifying roll recorded: ${spaces} spaces.`
+            "/qualifying/movement/record",
+            {},
+            "Qualifying movement roll recorded."
         );
     });
 
-    qualifyingWreckButton.addEventListener("click", () => {
-        submitQualifyingAction(
-            "/qualifying/finish",
-            { reason: "wreck" },
-            "Qualifying run ended due to a wreck."
-        );
-    });
-
-    qualifyingMechanicalButton.addEventListener("click", () => {
-        submitQualifyingAction(
-            "/qualifying/finish",
-            { reason: "mechanical-failure" },
-            "Qualifying run ended due to mechanical failure."
-        );
-    });
+    qualifyingWreckButton.addEventListener("click", () => {});
+    qualifyingMechanicalButton.addEventListener("click", () => {});
 
     /*
      * Display a message in the appropriate status area.
@@ -1010,14 +1099,39 @@ document.addEventListener("DOMContentLoaded", () => {
         tokenLayer.replaceChildren();
 
         const activeRace = room?.event?.activeRace;
-        if (!activeRace || !Array.isArray(activeRace.cars)) {
+        const qualifyingRun = room?.event?.phase === "qualifying"
+            ? room?.event?.qualifying?.activeRun
+            : null;
+
+        const carsToDraw = [];
+
+        if (activeRace && Array.isArray(activeRace.cars)) {
+            carsToDraw.push(...activeRace.cars);
+        }
+
+        if (
+            qualifyingRun?.movementTurn?.position &&
+            Number.isInteger(qualifyingRun.movementTurn.position.section) &&
+            Number.isInteger(qualifyingRun.movementTurn.position.lane)
+        ) {
+            carsToDraw.push({
+                carNumber: qualifyingRun.carNumber,
+                driverName: qualifyingRun.driverName,
+                playerName: qualifyingRun.playerName,
+                ownerColor: "#f0b429",
+                status: "running",
+                position: qualifyingRun.movementTurn.position
+            });
+        }
+
+        if (carsToDraw.length === 0) {
             return;
         }
 
         const svgNamespace = "http://www.w3.org/2000/svg";
         const carsAtSpace = new Map();
 
-        activeRace.cars.forEach((car) => {
+        carsToDraw.forEach((car) => {
             // Retired cars stay in the race data but are off the track.
             if (
                 car?.status !== "running" ||
@@ -1612,3 +1726,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
     console.log("Sprint Car Showdown browser interactions initialized.");
 });
+
