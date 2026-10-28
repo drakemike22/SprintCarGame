@@ -487,8 +487,16 @@ class Season {
             throw new Error("There is no active qualifying run.");
         }
 
-        if (result.movementTurn?.status === "waiting-for-choice") {
+        if (
+            result.movementTurn &&
+            !result.movementTurn.recorded &&
+            result.movementTurn.status === "waiting-for-choice"
+        ) {
             throw new Error("The qualifying movement turn is already active.");
+        }
+
+        if (result.movementTurn?.recorded) {
+            result.movementTurn = null;
         }
 
         if (result.rollsCompleted >= 3) {
@@ -548,9 +556,14 @@ class Season {
 
         return result;
     }
-        /*
-     * Records a completed server-generated qualifying movement turn.
+    
+    /*
+     * Records one completed qualifying movement roll.
      * The distance comes from actual movement history, not client input.
+     *
+     * Once recorded, clear the old movement turn so the next attempt
+     * must generate fresh dice. Keep qualifyingPosition on the result
+     * so the car starts its next attempt where it finished this one.
      */
     recordQualifyingMovementRoll() {
         const session = this.getQualifyingSession();
@@ -561,6 +574,9 @@ class Season {
         }
 
         const turn = result.movementTurn;
+        if (turn.recorded) {
+            throw new Error("This qualifying movement roll has already been recorded.");
+        }
 
         if (
             turn.status !== "complete" &&
@@ -588,11 +604,16 @@ class Season {
             spaces,
             finalPosition
         });
+        turn.recorded = true;
+
+        // Clear only after a successful record. The next roll must
+        // create a new turn, with fresh dice and the saved final position.
 
         this.syncQualifyingResults();
 
         return recordedResult;
     }
+
 
     /*
      * End a qualifying run early because of a wreck or mechanical
