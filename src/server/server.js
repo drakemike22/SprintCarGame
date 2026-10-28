@@ -397,7 +397,44 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
+        
+        // POST /api/rooms/:code/qualifying/movement/preview
+        const qualifyingMovementPreviewMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/movement\/preview$/
+        );
 
+        if (method === "POST" && qualifyingMovementPreviewMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const preview = roomManager.previewQualifyingMovementRoute(
+                decodeRoomCode(qualifyingMovementPreviewMatch[1]),
+                playerId,
+                body.positions
+            );
+
+            sendJson(response, 200, { preview });
+            return true;
+        }
+
+        // POST /api/rooms/:code/qualifying/movement/confirm
+        const qualifyingMovementConfirmMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/qualifying\/movement\/confirm$/
+        );
+
+        if (method === "POST" && qualifyingMovementConfirmMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.confirmQualifyingMovementRoute(
+                decodeRoomCode(qualifyingMovementConfirmMatch[1]),
+                playerId,
+                body.positions
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
         
         // POST /api/rooms/:code/qualifying/movement/record
         const qualifyingMovementRecordMatch = pathname.match(
@@ -416,6 +453,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
         
+        
         // POST /api/rooms/:code/qualifying/mechanical-wheel
         const qualifyingMechanicalWheelMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/qualifying\/mechanical-wheel$/
@@ -423,12 +461,10 @@ async function handleApiRequest(request, response, url, roomManager) {
 
         if (method === "POST" && qualifyingMechanicalWheelMatch) {
             const playerId = getPlayerCredential(request);
-            const body = await readJsonBody(request);
 
             const room = roomManager.resolveQualifyingMechanicalWheel(
                 decodeRoomCode(qualifyingMechanicalWheelMatch[1]),
-                playerId,
-                body.slot
+                playerId
             );
 
             sendJson(response, 200, { room });
@@ -442,19 +478,32 @@ async function handleApiRequest(request, response, url, roomManager) {
 
         if (method === "POST" && qualifyingWreckWheelMatch) {
             const playerId = getPlayerCredential(request);
-            const body = await readJsonBody(request);
 
             const room = roomManager.resolveQualifyingWreckWheel(
                 decodeRoomCode(qualifyingWreckWheelMatch[1]),
-                playerId,
-                body.slot
+                playerId
             );
 
             sendJson(response, 200, { room });
             return true;
         }
 
+        // POST /api/rooms/:code/incident/acknowledge
+        const acknowledgeIncidentMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/incident\/acknowledge$/
+        );
 
+        if (method === "POST" && acknowledgeIncidentMatch) {
+            const playerId = getPlayerCredential(request);
+
+            const room = roomManager.acknowledgeIncident(
+                decodeRoomCode(acknowledgeIncidentMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
 
         // POST /api/rooms/:code/qualifying/roll
         const qualifyingRollMatch = pathname.match(
