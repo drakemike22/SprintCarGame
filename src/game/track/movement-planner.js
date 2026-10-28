@@ -94,6 +94,10 @@ function getLegalPlannerPositions(
         };
 
         const laneChangeCost = Math.abs(lane - currentPosition.lane);
+        // A single movement step can change at most one lane.
+        if (laneChangeCost > 1) {
+            continue;
+        }
 
         if (laneChangeCost > laneChangesRemaining) {
             continue;

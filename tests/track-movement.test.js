@@ -78,7 +78,7 @@ test("a blocked car can choose an available adjacent lane", () => {
     );
 });
 
-test("a car can choose any available lane within its lane-change allowance", () => {
+test("a car can choose only an adjacent lane in one step", () => {
     assert.deepEqual(
         getLegalNextPositions(
             { section: 25, lane: 1 },
@@ -87,8 +87,7 @@ test("a car can choose any available lane within its lane-change allowance", () 
         ),
         [
             { section: 26, lane: 0 },
-            { section: 26, lane: 2 },
-            { section: 26, lane: 3 }
+            { section: 26, lane: 2 }
         ]
     );
 });
@@ -104,7 +103,7 @@ test("a car cannot change lanes farther than its allowance", () => {
     );
 });
 
-test("a car cannot move into a space occupied by another car", () => {
+test("a car cannot move into occupied or non-adjacent spaces", () => {
     assert.deepEqual(
         getLegalNextPositions(
             { section: 25, lane: 1 },
@@ -115,7 +114,7 @@ test("a car cannot move into a space occupied by another car", () => {
             ],
             2
         ),
-        [{ section: 26, lane: 3 }]
+        []
     );
 });
 
@@ -175,10 +174,10 @@ test("a car moving in its current lane does not spend lane changes", () => {
     });
 });
 
-test("a car that changes two lanes spends two lane changes", () => {
-    const result = advanceOneSection({
+test("a car changes one lane per step and spends one lane change", () => {
+    const firstMove = advanceOneSection({
         currentPosition: { section: 25, lane: 1 },
-        targetPosition: { section: 26, lane: 3 },
+        targetPosition: { section: 26, lane: 2 },
         occupiedPositions: [
             { section: 26, lane: 1 }
         ],
@@ -186,9 +185,27 @@ test("a car that changes two lanes spends two lane changes", () => {
         laneChangesRemaining: 2
     });
 
-    assert.deepEqual(result, {
-        position: { section: 26, lane: 3 },
+    assert.deepEqual(firstMove, {
+        position: { section: 26, lane: 2 },
         movementRemaining: 3,
+        laneChangesRemaining: 1,
+        stuck: false,
+        moved: true
+    });
+
+    const secondMove = advanceOneSection({
+        currentPosition: firstMove.position,
+        targetPosition: { section: 27, lane: 3 },
+        occupiedPositions: [
+            { section: 27, lane: 2 }
+        ],
+        movementRemaining: firstMove.movementRemaining,
+        laneChangesRemaining: firstMove.laneChangesRemaining
+    });
+
+    assert.deepEqual(secondMove, {
+        position: { section: 27, lane: 3 },
+        movementRemaining: 2,
         laneChangesRemaining: 0,
         stuck: false,
         moved: true

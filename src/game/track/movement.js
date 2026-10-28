@@ -86,6 +86,11 @@ function getLegalNextPositions(
     for (let lane = 0; lane < TRACK_LANES; lane++) {
         const lanesRequired = Math.abs(lane - currentPosition.lane);
 
+        // A single movement step can change at most one lane.
+        if (lanesRequired > 1) {
+            continue;
+        }
+
         // The player cannot use more lane changes than remain.
         if (lanesRequired > laneChangesRemaining) {
             continue;

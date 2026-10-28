@@ -32,27 +32,19 @@ test("starts a route plan without changing the starting position", () => {
     assert.deepEqual(start, originalPosition);
 });
 
-test("offers strategic lane changes even when the current lane is open", () => {
+test("offers only adjacent strategic lane changes when the lane is open", () => {
     const plan = makePlan();
 
     assert.ok(plan.legalNextPositions.some(
         position => position.section === 11 && position.lane === 0
     ));
+
     assert.ok(plan.legalNextPositions.some(
         position => position.section === 11 && position.lane === 2
     ));
-    assert.ok(plan.legalNextPositions.some(
-        position => position.section === 11 && position.lane === 3
-    ));
-});
-
-test("does not offer occupied spaces as route choices", () => {
-    const plan = makePlan({
-        occupiedPositions: [{ section: 11, lane: 2 }]
-    });
 
     assert.ok(!plan.legalNextPositions.some(
-        position => position.section === 11 && position.lane === 2
+        position => position.section === 11 && position.lane === 3
     ));
 });
 

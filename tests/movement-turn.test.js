@@ -54,8 +54,7 @@ test("movement waits for the player to choose each space", () => {
     assert.deepEqual(turn.legalNextPositions, [
         { section: 26, lane: 0 },
         { section: 26, lane: 1 },
-        { section: 26, lane: 2 },
-        { section: 26, lane: 3 }
+        { section: 26, lane: 2 }
     ]);
 });
 
@@ -292,8 +291,7 @@ test("undo restores the previous movement choice", () => {
     assert.deepEqual(undoneTurn.legalNextPositions, [
         { section: 26, lane: 0 },
         { section: 26, lane: 1 },
-        { section: 26, lane: 2 },
-        { section: 26, lane: 3 }
+        { section: 26, lane: 2 }
     ]);
 
     // Undo must not mutate the turn that was passed in.
