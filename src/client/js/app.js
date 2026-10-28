@@ -47,6 +47,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const toggleReadyButton = document.getElementById("toggle-ready");
     const startSeasonButton = document.getElementById("start-season");
     const leaveLobbyButton = document.getElementById("leave-lobby");
+    /*
+    * Race incident dialog elements.
+    */
+    const incidentDialog = document.getElementById("incident-dialog");
+    const incidentCar = document.getElementById("incident-car");
+    const incidentWheel = document.getElementById("incident-wheel");
+    const incidentOutcome = document.getElementById("incident-outcome");
+    const incidentConsequence = document.getElementById("incident-consequence");
+    const incidentWaiting = document.getElementById("incident-waiting");
+    const incidentAcknowledge = document.getElementById("incident-acknowledge");
 
     /*
      * Draft screen elements.
@@ -115,8 +125,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let currentRoom = null;
     let isRequestInProgress = false;
+    // Local-only qualifying route preview.
+    // These positions are not committed to the server until confirmation.
+    let qualifyingPlannedPositions = [];
+    let qualifyingPreview = null;
+    let qualifyingPreviewRequestId = 0;
+    let qualifyingPreviewPending = false;
     let isRefreshing = false;
     let pollTimer = null;
+    let automaticIncidentRequestKey = null;
     /*
      * Qualifying controls.
      * The server remains authoritative for car ownership, run order,
@@ -260,63 +277,191 @@ document.addEventListener("DOMContentLoaded", () => {
             (status !== "complete" && status !== "stuck") ||
             needsWheel;
 
-        // Until the wheel UI is connected, do not allow old shortcut buttons
-        // to bypass the server's incident-wheel resolution.
+        // The incident dialog handles wheel outcomes.
+        // Hide the legacy shortcut buttons to prevent duplicate controls.
         qualifyingWreckButton.hidden = true;
         qualifyingMechanicalButton.hidden = true;
         qualifyingWreckButton.disabled = true;
         qualifyingMechanicalButton.disabled = true;
 
+        
         qualifyingMovementChoices.replaceChildren();
 
         if (activeRun && turn && activeCarIsYours) {
-            const position = turn.position;
+            const preview = qualifyingPreview;
+            const plannedPositions = qualifyingPlannedPositions;
+            const currentPosition = preview?.position ?? turn.position;
+
             const positionLabel = document.createElement("p");
-            positionLabel.textContent = position
-                ? `Current space: section ${position.section}, lane ${position.lane}. ` +
-                  `Movement remaining: ${turn.movementRemaining ?? 0}; ` +
-                  `lane changes remaining: ${turn.laneChangesRemaining ?? 0}.`
-                : "Current position unavailable.";
+            positionLabel.textContent =
+                `Starting space: section ${activeRun.qualifyingPosition?.section ?? turn.movementPlan?.currentPosition?.section ?? currentPosition?.section}, ` +
+                `lane ${activeRun.qualifyingPosition?.lane ?? turn.movementPlan?.currentPosition?.lane ?? currentPosition?.lane}. ` +
+                `Planned steps: ${plannedPositions.length}.`;
             qualifyingMovementChoices.appendChild(positionLabel);
 
-            if (status === "waiting-for-choice" && !needsWheel) {
-                const heading = document.createElement("h3");
-                heading.textContent = "Choose the next space";
-                qualifyingMovementChoices.appendChild(heading);
-
-                const choices = Array.isArray(turn.legalNextPositions)
-                    ? turn.legalNextPositions
-                    : [];
-
-                if (choices.length === 0) {
-                    const empty = document.createElement("p");
-                    empty.textContent = "No legal moves are available.";
-                    qualifyingMovementChoices.appendChild(empty);
-                }
-
-                choices.forEach((targetPosition) => {
-                    const button = document.createElement("button");
-                    button.type = "button";
-                    button.className = "qualifying-move-choice";
-                    button.disabled = isRequestInProgress;
-                    button.textContent =
-                        `Section ${targetPosition.section}, lane ${targetPosition.lane}`;
-
-                    button.addEventListener("click", () => {
-                        submitQualifyingAction(
-                            "/qualifying/movement/choose",
-                            { targetPosition },
-                            `Moved to section ${targetPosition.section}, lane ${targetPosition.lane}.`
-                        );
-                    });
-
-                    qualifyingMovementChoices.appendChild(button);
-                });
-            } else if (needsWheel) {
+            
+            
+            if (needsWheel) {
                 const notice = document.createElement("p");
                 notice.textContent =
-                    "An incident wheel is required. Wheel controls are not connected yet; do not record this roll.";
+                    "The incident outcome will be selected automatically. " +
+                    "Resolve it using the incident dialog.";
                 qualifyingMovementChoices.appendChild(notice);
+            } else if (
+
+
+                !turn.routeConfirmed &&
+                (status === "waiting-for-choice" ||
+                 plannedPositions.length > 0)
+            ) {
+                const heading = document.createElement("h3");
+                heading.textContent = "Plan your route";
+                qualifyingMovementChoices.appendChild(heading);
+
+                const instructions = document.createElement("p");
+                instructions.textContent =
+                    "Click a highlighted legal space on the track to add it to your route. Right-click the track to undo the last planned step.";
+                qualifyingMovementChoices.appendChild(instructions);
+
+                const routeStatus = document.createElement("p");
+                routeStatus.textContent = preview
+                    ? `Preview: ${preview.status}. Movement remaining: ${preview.movementRemaining ?? "—"}.`
+                    : "Select a legal space to preview your route.";
+                qualifyingMovementChoices.appendChild(routeStatus);
+
+                const confirmButton = document.createElement("button");
+                confirmButton.type = "button";
+                confirmButton.textContent = "Confirm Movement";
+                confirmButton.disabled =
+                    isRequestInProgress ||
+                    !preview ||
+                    (preview.status !== "complete" &&
+                     preview.status !== "stuck");
+                
+                
+                confirmButton.addEventListener("click", async () => {
+                    const positions = qualifyingPlannedPositions.map(position => ({
+                        section: position.section,
+                        lane: position.lane
+                    }));
+
+                    // First commit the route. Never record an unconfirmed route.
+                    const confirmed = await submitQualifyingAction(
+                        "/qualifying/movement/confirm",
+                        { positions },
+                        "Movement confirmed. Recording the qualifying roll..."
+                    );
+
+                    if (!confirmed) return;
+
+                    // The route is committed. Clear the local preview and
+                    // automatically record the movement roll.
+                    qualifyingPlannedPositions = [];
+                    qualifyingPreview = null;
+                    qualifyingPreviewPending = false;
+                    qualifyingPreviewRequestId++;
+
+                    renderRaceTokens(currentRoom);
+                    renderQualifying(currentRoom);
+
+                    await submitQualifyingAction(
+                        "/qualifying/movement/record",
+                        {},
+                        "Movement confirmed and recorded."
+                    );
+                });
+
+
+                qualifyingMovementChoices.appendChild(confirmButton);
+            } else if (status === "complete" || status === "stuck") {
+                const notice = document.createElement("p");
+                notice.textContent =
+                    "Movement is confirmed. Record this qualifying roll when ready.";
+                qualifyingMovementChoices.appendChild(notice);
+            }
+            /*
+            * Automatically request an incident wheel when the server says
+            * the active qualifying turn is waiting for one.
+            *
+            * The server remains responsible for selecting the random outcome.
+            * Only the owner of the active car requests the spin.
+            * The shared pending incident prevents duplicate requests.
+            */
+            if (
+                activeRun &&
+                turn &&
+                activeCarIsYours &&
+                needsWheel &&
+                !room.pendingIncident &&
+                !isRequestInProgress
+            ) {
+                const wheelType =
+                    mechanicalWheel?.status === "awaiting-spin"
+                        ? "mechanical"
+                        : wreckWheel?.status === "awaiting-spin"
+                            ? "wreck"
+                            : eventResolution?.result?.type === "mechanical-spinner"
+                                ? "mechanical"
+                                : "wreck";
+
+                const turnKey = [
+                    room.code,
+                    activeRun.carNumber ?? "unknown-car",
+                    activeRun.rollsCompleted ?? 0,
+                    wheelType
+                ].join(":");
+
+                if (automaticIncidentRequestKey !== turnKey) {
+                    automaticIncidentRequestKey = turnKey;
+
+                    window.setTimeout(async () => {
+                        /*
+                        * Recheck the latest room state before sending. Polling
+                        * or another action may have changed it since rendering.
+                        */
+                        const latestRoom = currentRoom;
+                        const latestRun = latestRoom?.event?.qualifying?.activeRun;
+                        const latestTurn = latestRun?.movementTurn;
+
+                        const latestWheel =
+                            wheelType === "mechanical"
+                                ? latestTurn?.mechanicalWheel
+                                : latestTurn?.wreckWheel;
+
+                        if (
+                            latestRoom?.code !== room.code ||
+                            latestRoom?.pendingIncident ||
+                            !latestRun?.isYours ||
+                            latestRun?.carNumber !== activeRun.carNumber ||
+                            latestRun?.rollsCompleted !== activeRun.rollsCompleted ||
+                            latestWheel?.status !== "awaiting-spin" ||
+                            isRequestInProgress
+                        ) {
+                            // Let a later render retry if the wheel is still waiting.
+                            // A pending incident already has its own shared dialog.
+                            automaticIncidentRequestKey = null;
+                            return;
+                        }
+
+                        const succeeded = await submitQualifyingAction(
+                            wheelType === "mechanical"
+                                ? "/qualifying/mechanical-wheel"
+                                : "/qualifying/wreck-wheel",
+                            {},
+                            `${wheelType === "mechanical" ? "Mechanical" : "Wreck"} wheel resolved.`
+                        );
+
+                        /*
+                        * Allow a later render to retry if the request failed.
+                        * A successful request creates the shared pending incident.
+                        */
+                        if (succeeded === false) {
+                            automaticIncidentRequestKey = null;
+                        }
+                    }, 0);
+                }
+            } else if (!needsWheel && !room.pendingIncident) {
+                automaticIncidentRequestKey = null;
             }
         }
 
@@ -348,6 +493,83 @@ document.addEventListener("DOMContentLoaded", () => {
             qualifyingResults.appendChild(item);
         }
     }
+    
+    async function previewQualifyingRoute(positions) {
+        if (isRequestInProgress || !currentRoom?.code) {
+            return false;
+        }
+
+        const activeRun = currentRoom.event?.qualifying?.activeRun;
+
+        if (
+            !activeRun?.isYours ||
+            !activeRun.movementTurn ||
+            activeRun.movementTurn.routeConfirmed
+        ) {
+            return false;
+        }
+
+        // Copy the proposed route so later clicks cannot mutate this request.
+        const requestedPositions = positions.map(position => ({
+            section: position.section,
+            lane: position.lane
+        }));
+
+        const requestId = ++qualifyingPreviewRequestId;
+
+        // Show the intended route immediately while validation is in progress.
+        qualifyingPlannedPositions = requestedPositions;
+        qualifyingPreview = null;
+        renderRaceTokens(currentRoom);
+        renderQualifying(currentRoom);
+        qualifyingPreviewPending = true;
+
+        try {
+            const data = await requestJson(
+                `/api/rooms/${encodeURIComponent(currentRoom.code)}/qualifying/movement/preview`,
+                {
+                    method: "POST",
+                    headers: getPlayerHeaders(),
+                    body: JSON.stringify({
+                        positions: requestedPositions
+                    })
+                }
+            );
+
+            // A newer click or undo takes precedence over this response.
+            if (requestId !== qualifyingPreviewRequestId) {
+                return false;
+            }
+            qualifyingPreviewPending = false;
+
+            qualifyingPreview = data.preview;
+
+            renderRaceTokens(currentRoom);
+            renderQualifying(currentRoom);
+
+            return true;
+        } catch (error) {
+            if (requestId !== qualifyingPreviewRequestId) {
+                return false;
+            }
+            qualifyingPreviewPending = false;
+
+            // Reject the invalid route and restore the previous valid route.
+            qualifyingPlannedPositions = qualifyingPlannedPositions.slice(0, -1);
+            qualifyingPreview = null;
+
+            setQualifyingFeedback(
+                error.message || "Could not preview this movement route.",
+                true
+            );
+
+            renderQualifying(currentRoom);
+            return false;
+        }
+    }
+
+
+
     async function submitQualifyingAction(endpoint, payload, successMessage) {
         if (isRequestInProgress) {
             return;
@@ -379,11 +601,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             renderRoom(data.room);
             setQualifyingFeedback(successMessage);
+            return true;
         } catch (error) {
             setQualifyingFeedback(
                 error.message || "The qualifying action failed.",
                 true
             );
+            
+            return false;
+
         } finally {
             isRequestInProgress = false;
 
@@ -415,9 +641,22 @@ document.addEventListener("DOMContentLoaded", () => {
             "Qualifying movement roll recorded."
         );
     });
+    
+    qualifyingWreckButton.addEventListener("click", () => {
+        submitQualifyingAction(
+            "/qualifying/wreck-wheel",
+            {},
+            "Wreck wheel spun."
+        );
+    });
 
-    qualifyingWreckButton.addEventListener("click", () => {});
-    qualifyingMechanicalButton.addEventListener("click", () => {});
+    qualifyingMechanicalButton.addEventListener("click", () => {
+        submitQualifyingAction(
+            "/qualifying/mechanical-wheel",
+            {},
+            "Mechanical wheel spun."
+        );
+    });
 
     /*
      * Display a message in the appropriate status area.
@@ -512,12 +751,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!response.ok) {
             const message = data?.error?.message;
-
-            throw new Error(
+            const error = new Error(
                 typeof message === "string"
                     ? message
                     : "The request failed. Please try again."
             );
+
+            // Keep server details available for debugging.
+            error.status = response.status;
+            error.code = data?.error?.code ?? null;
+
+            console.error("Game request failed:", {
+                url,
+                status: error.status,
+                code: error.code,
+                message: error.message
+            });
+
+            throw error;
         }
 
         return data;
@@ -1074,8 +1325,37 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderRaceTokens(room) {
         const trackSvg = document.querySelector(".race-track-svg");
         const tokenLayer = trackSvg?.querySelector(".track-car-tokens");
+        const movementLayer = (() => {
+            if (!trackSvg) return null;
 
-        if (!trackSvg || !tokenLayer) {
+            let layer = trackSvg.querySelector(".track-movement-interaction-layer");
+
+            if (!layer) {
+                layer = document.createElementNS(
+                    "http://www.w3.org/2000/svg",
+                    "g"
+                );
+
+                layer.setAttribute(
+                    "class",
+                    "track-movement-interaction-layer"
+                );
+
+                // Keep interactive spaces above the track artwork and below
+                // the car tokens so the cars remain visible.
+                const existingTokenLayer = trackSvg.querySelector(".track-car-tokens");
+
+                if (existingTokenLayer) {
+                    trackSvg.insertBefore(layer, existingTokenLayer);
+                } else {
+                    trackSvg.appendChild(layer);
+                }
+            }
+
+            return layer;
+        })();
+
+        if (!trackSvg || !tokenLayer || !movementLayer) {
             return;
         }
 
@@ -1094,14 +1374,230 @@ document.addEventListener("DOMContentLoaded", () => {
                 y: Number(label.getAttribute("y"))
             });
         });
+        
+        // Rebuild the interactive layer from the current qualifying state.
+        movementLayer.replaceChildren();
+        const qualifyingRun = room?.event?.phase === "qualifying"
+            ? room?.event?.qualifying?.activeRun
+            : null;
+
+        const movementTurn = qualifyingRun?.movementTurn;
+        const canPlanRoute = Boolean(
+            qualifyingRun?.isYours &&
+            movementTurn &&
+            !movementTurn.routeConfirmed &&
+            !isRequestInProgress
+        );
+
+        // While a preview is pending, wait for its legal next spaces.
+        const canSelectSpace = Boolean(
+            canPlanRoute &&
+            !qualifyingPreviewPending &&
+            (
+                qualifyingPlannedPositions.length === 0 ||
+                qualifyingPreview
+            )
+        );
+
+        const legalPositions = qualifyingPreview
+            ? qualifyingPreview.legalNextPositions
+            : movementTurn?.legalNextPositions;
+        
+        
+        // Keep every planned space visible until confirmation.
+        // The route begins at the car's original qualifying position.
+        const routePoints = [];
+        const startPosition = qualifyingRun?.qualifyingPosition
+            ?? movementTurn?.position;
+
+        if (
+            startPosition &&
+            Number.isInteger(startPosition.section) &&
+            Number.isInteger(startPosition.lane)
+        ) {
+            const startPoint = coordinates.get(
+                `${startPosition.section}-${startPosition.lane}`
+            );
+
+            if (startPoint) routePoints.push(startPoint);
+        }
+
+        qualifyingPlannedPositions.forEach((position) => {
+            const point = coordinates.get(
+                `${position.section}-${position.lane}`
+            );
+
+            if (point) routePoints.push(point);
+        });
+
+        const svgNamespace = "http://www.w3.org/2000/svg";
+
+        // Draw a line connecting the starting space and every planned space.
+        if (routePoints.length > 1) {
+            const path = document.createElementNS(svgNamespace, "polyline");
+
+            path.setAttribute(
+                "points",
+                routePoints.map(point => `${point.x},${point.y}`).join(" ")
+            );
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", "#20a464");
+            path.setAttribute("stroke-width", "5");
+            path.setAttribute("stroke-linecap", "round");
+            path.setAttribute("stroke-linejoin", "round");
+            path.setAttribute("opacity", "0.9");
+            path.style.pointerEvents = "none";
+
+            movementLayer.appendChild(path);
+        }
+
+        // Mark each selected destination so the complete path is easy to see.
+        qualifyingPlannedPositions.forEach((position, index) => {
+            const point = coordinates.get(
+                `${position.section}-${position.lane}`
+            );
+
+            if (!point) return;
+
+            const marker = document.createElementNS(svgNamespace, "circle");
+            marker.setAttribute("cx", String(point.x));
+            marker.setAttribute("cy", String(point.y));
+            marker.setAttribute("r", "7");
+            marker.setAttribute("fill", "#20a464");
+            marker.setAttribute("stroke", "#ffffff");
+            marker.setAttribute("stroke-width", "2");
+            marker.style.pointerEvents = "none";
+
+            const title = document.createElementNS(svgNamespace, "title");
+            title.textContent = `Planned step ${index + 1}`;
+            marker.appendChild(title);
+
+            movementLayer.appendChild(marker);
+        });
+
+
+        if (canSelectSpace && Array.isArray(legalPositions)) {
+            legalPositions.forEach((position) => {
+                const key = `${position.section}-${position.lane}`;
+                const point = coordinates.get(key);
+
+                if (!point) return;
+
+                const target = document.createElementNS(
+                    "http://www.w3.org/2000/svg",
+                    "circle"
+                );
+
+                target.setAttribute("cx", String(point.x));
+                target.setAttribute("cy", String(point.y));
+                target.setAttribute("r", "13");
+                target.setAttribute("class", "track-movement-target");
+                target.setAttribute("data-movement-section", String(position.section));
+                target.setAttribute("data-movement-lane", String(position.lane));
+                target.setAttribute("role", "button");
+                target.setAttribute(
+                    "aria-label",
+                    `Plan section ${position.section}, lane ${position.lane}`
+                );
+                target.setAttribute("tabindex", "0");
+
+                target.style.fill = "rgba(30, 180, 100, 0.28)";
+                target.style.stroke = "#20a464";
+                target.style.strokeWidth = "2";
+                target.style.cursor = "pointer";
+                target.style.pointerEvents = "all";
+
+                const title = document.createElementNS(
+                    "http://www.w3.org/2000/svg",
+                    "title"
+                );
+                title.textContent =
+                    `Click to plan section ${position.section}, lane ${position.lane}`;
+
+                target.appendChild(title);
+                movementLayer.appendChild(target);
+            });
+        }
+
+        // Assign handlers to the existing layer rather than adding a new
+        // listener on every render.
+        movementLayer.onclick = (event) => {
+            const target = event.target.closest("[data-movement-section]");
+
+            if (!target || !canSelectSpace) return;
+
+            const position = {
+                section: Number(target.getAttribute("data-movement-section")),
+                lane: Number(target.getAttribute("data-movement-lane"))
+            };
+
+            const isLegal = legalPositions?.some(
+                legal =>
+                    legal.section === position.section &&
+                    legal.lane === position.lane
+            );
+
+            if (!isLegal) return;
+
+            // Explicitly validate the first selected space against the
+            // active server-provided movement turn.
+            if (qualifyingPlannedPositions.length === 0) {
+                const firstMoveIsLegal =
+                    movementTurn?.legalNextPositions?.some(
+                        legal =>
+                            legal.section === position.section &&
+                            legal.lane === position.lane
+                    );
+
+                if (!firstMoveIsLegal) {
+                    setQualifyingFeedback(
+                        "That is not a legal first move. Select a highlighted space.",
+                        true
+                    );
+                    return;
+                }
+            }
+
+            event.preventDefault();
+
+            previewQualifyingRoute([
+                ...qualifyingPlannedPositions,
+                position
+            ]);
+        };
+
+        movementLayer.oncontextmenu = (event) => {
+            event.preventDefault();
+
+            if (
+                !canPlanRoute ||
+                qualifyingPreviewPending ||
+                qualifyingPlannedPositions.length === 0
+            ) {
+                return;
+            }
+
+            previewQualifyingRoute(
+                qualifyingPlannedPositions.slice(0, -1)
+            );
+        };
+
+        movementLayer.onkeydown = (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+
+            const target = event.target.closest("[data-movement-section]");
+
+            if (target) {
+                event.preventDefault();
+                target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            }
+        };
+
 
         // Rebuild the layer from the latest snapshot, preventing stale tokens.
         tokenLayer.replaceChildren();
 
         const activeRace = room?.event?.activeRace;
-        const qualifyingRun = room?.event?.phase === "qualifying"
-            ? room?.event?.qualifying?.activeRun
-            : null;
 
         const carsToDraw = [];
 
@@ -1109,10 +1605,15 @@ document.addEventListener("DOMContentLoaded", () => {
             carsToDraw.push(...activeRace.cars);
         }
 
+        const qualifyingPosition =
+            qualifyingRun?.movementTurn?.routeConfirmed
+                ? qualifyingRun.movementTurn.position
+                : qualifyingRun?.qualifyingPosition;
+
         if (
-            qualifyingRun?.movementTurn?.position &&
-            Number.isInteger(qualifyingRun.movementTurn.position.section) &&
-            Number.isInteger(qualifyingRun.movementTurn.position.lane)
+            qualifyingPosition &&
+            Number.isInteger(qualifyingPosition.section) &&
+            Number.isInteger(qualifyingPosition.lane)
         ) {
             carsToDraw.push({
                 carNumber: qualifyingRun.carNumber,
@@ -1120,7 +1621,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 playerName: qualifyingRun.playerName,
                 ownerColor: "#f0b429",
                 status: "running",
-                position: qualifyingRun.movementTurn.position
+                position: qualifyingPosition
             });
         }
 
@@ -1128,7 +1629,6 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const svgNamespace = "http://www.w3.org/2000/svg";
         const carsAtSpace = new Map();
 
         carsToDraw.forEach((car) => {
@@ -1199,6 +1699,39 @@ document.addEventListener("DOMContentLoaded", () => {
             tokenLayer.appendChild(group);
         });
     }
+    function renderIncident(room) {
+        const incident = room.pendingIncident;
+
+        if (!incident) {
+            if (incidentDialog.open) {
+                incidentDialog.close();
+            }
+            return;
+        }
+
+        incidentCar.textContent =
+            `Car #${incident.carNumber} — ${incident.driverName}`;
+
+        incidentWheel.textContent =
+            `${incident.wheelType === "mechanical" ? "Mechanical" : "Wreck"} wheel`;
+
+        incidentOutcome.textContent =
+            `Outcome: ${String(incident.outcome).replaceAll("-", " ")}`;
+
+        incidentConsequence.textContent =
+            `Consequence: ${String(incident.consequence).replaceAll("-", " ")}`;
+
+        incidentAcknowledge.hidden = !incident.canAcknowledge;
+        incidentWaiting.hidden = Boolean(incident.canAcknowledge);
+
+        incidentWaiting.textContent =
+            `Waiting for ${incident.playerName} to acknowledge this incident.`;
+
+        if (!incidentDialog.open) {
+            incidentDialog.showModal();
+        }
+    }
+
     function renderRoom(room) {
         if (
             !room ||
@@ -1213,6 +1746,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         currentRoom = room;
+        renderIncident(room);
         renderRaceTokens(room);
         if (room.status === "started" && room.event) {
             const requestedPage = window.location.hash.slice(1);
@@ -1594,6 +2128,31 @@ document.addEventListener("DOMContentLoaded", () => {
         stopLobbyPolling();
         navigateToPage("home");
     });
+    
+    /*
+    * Acknowledge a race incident.
+    * Only the owner can acknowledge it; the server checks ownership too.
+    */
+    incidentAcknowledge.addEventListener("click", async () => {
+        if (!currentRoom?.pendingIncident?.canAcknowledge) {
+            return;
+        }
+
+        incidentAcknowledge.disabled = true;
+
+        try {
+            await submitQualifyingAction(
+                "/incident/acknowledge",
+                {},
+                "Incident acknowledged."
+            );
+        } catch (error) {
+            console.error("Could not acknowledge incident:", error);
+        } finally {
+            incidentAcknowledge.disabled = false;
+        }
+    });
+
 
     createOwnerNameInput.addEventListener("input", () => {
         createOwnerNameInput.removeAttribute("aria-invalid");
