@@ -11,6 +11,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 
 const {
     RoomManager,
@@ -861,21 +862,33 @@ test("qualifying movement choices reject another player's attempt", () => {
     );
 });
 
-test("qualifying movement records actual traveled spaces", () => {
-    const { manager, host, guest, code, snapshot } = createQualifyingRoom();
+function runQualifyingIncidentTest(t, { die, wheelType, slot }) {
+    const { manager, host, guest, code, snapshot } =
+        createQualifyingRoom();
+
     const nextCar = snapshot.event.qualifying.nextCar;
     const ownerId = nextCar.playerName === "Host"
         ? host.playerId
         : guest.playerId;
 
     manager.startNextQualifyingRun(code, ownerId);
+
+    // Force all three dice to match, producing the requested wheel type.
+    t.mock.method(
+        Math,
+        "random",
+        () => (die - 1) / 6 + 0.001
+    );
+
     manager.startQualifyingMovementTurn(code, ownerId);
 
     const room = manager.rooms.get(code);
-    const result = room.season.currentEvent.qualifyingSession.activeResult;
+    const session = room.season.currentEvent.qualifyingSession;
+        const result = session.activeResult;
 
     while (result.movementTurn.status === "waiting-for-choice") {
-        const legalPosition = result.movementTurn.legalNextPositions[0];
+        const currentTurn = result.movementTurn;
+        const legalPosition = currentTurn.legalNextPositions[0];
 
         assert.ok(legalPosition);
 
@@ -886,35 +899,114 @@ test("qualifying movement records actual traveled spaces", () => {
         );
     }
 
-    const expectedDistance = Math.max(
-        0,
-        result.movementTurn.history.length - 1
-    );
+    const turn = result.movementTurn;
+    const originalDistance = turn.history.length - 1;
+    const originalFinalPosition = { ...turn.position };
 
-    if (result.movementTurn.mechanicalWheel.status === "awaiting-spin") {
-        manager.resolveQualifyingMechanicalWheel(code, ownerId, 9);
-    } else if (result.movementTurn.wreckWheel.status === "awaiting-spin") {
-        manager.resolveQualifyingWreckWheel(code, ownerId, 9);
+    // Force the selected wheel slot.
+    t.mock.method(crypto, "randomInt", () => slot);
+
+    if (wheelType === "mechanical") {
+        manager.resolveQualifyingMechanicalWheel(code, ownerId);
     } else {
-        manager.recordQualifyingMovementRoll(code, ownerId);
+        manager.resolveQualifyingWreckWheel(code, ownerId);
     }
 
-    const activeResult =
-        room.season.currentEvent.qualifyingSession.activeResult;
+    manager.acknowledgeIncident(code, ownerId);
+    manager.recordQualifyingMovementRoll(code, ownerId);
 
-    const recordedResult = activeResult ??
-        room.season.currentEvent.qualifyingSession.completedResults.at(-1);
+    return {
+        room,
+        session,
+        result,
+        turn,
+        originalDistance,
+        originalFinalPosition
+    };
+}
 
-    assert.equal(recordedResult.distance, expectedDistance);
-    assert.equal(recordedResult.rollsCompleted, 1);
+test("qualifying backward-3 wreck retraces the route and continues the run", (t) => {
+    const {
+        session,
+        result,
+        turn,
+        originalDistance
+    } = runQualifyingIncidentTest(t, {
+        die: 2,
+        wheelType: "wreck",
+        slot: 2
+    });
 
-    if (result.movementTurn.mechanicalWheel.status === "awaiting-spin") {
-        assert.equal(recordedResult.finishReason, "mechanical-failure");
-    }
+    const expectedPosition = {
+        ...turn.history[turn.history.length - 4]
+    };
 
-    if (result.movementTurn.wreckWheel.status === "awaiting-spin") {
-        assert.equal(recordedResult.finishReason, "wreck");
-    }
+    assert.equal(result.distance, originalDistance - 3);
+    assert.deepEqual(result.qualifyingPosition, expectedPosition);
+    assert.equal(result.rollsCompleted, 1);
+    assert.equal(result.isFinished, false);
+    assert.equal(session.activeResult, result);
+});
+
+test("qualifying yellow-flag wreck records the full roll before ending the run", (t) => {
+    const {
+        session,
+        result,
+        originalDistance,
+        originalFinalPosition
+    } = runQualifyingIncidentTest(t, {
+        die: 2,
+        wheelType: "wreck",
+        slot: 4
+    });
+
+    assert.equal(result.distance, originalDistance);
+    assert.deepEqual(result.qualifyingPosition, originalFinalPosition);
+    assert.equal(result.rollsCompleted, 1);
+    assert.equal(result.isFinished, true);
+    assert.equal(result.finishReason, "wreck");
+    assert.equal(session.activeResult, null);
+    assert.equal(session.completedResults.at(-1), result);
+});
+
+test("safe qualifying mechanical outcome records movement and continues the run", (t) => {
+    const {
+        session,
+        result,
+        originalDistance,
+        originalFinalPosition
+    } = runQualifyingIncidentTest(t, {
+        die: 1,
+        wheelType: "mechanical",
+        slot: 6
+    });
+
+    assert.equal(result.distance, originalDistance);
+    assert.deepEqual(result.qualifyingPosition, originalFinalPosition);
+    assert.equal(result.rollsCompleted, 1);
+    assert.equal(result.isFinished, false);
+    assert.equal(session.activeResult, result);
+});
+
+test("qualifying mechanical failure records movement before ending the run", (t) => {
+    const {
+        session,
+        result,
+        originalDistance,
+        originalFinalPosition
+    } = runQualifyingIncidentTest(t, {
+        die: 1,
+        wheelType: "mechanical",
+        slot: 1
+    });
+
+    assert.equal(result.distance, originalDistance);
+    assert.deepEqual(result.qualifyingPosition, originalFinalPosition);
+    assert.equal(result.rollsCompleted, 1);
+    assert.equal(result.isFinished, true);
+    assert.equal(result.finishReason, "mechanical-failure");
+    assert.equal(session.activeResult, null);
+    assert.equal(session.completedResults.at(-1), result);
 });
 
 

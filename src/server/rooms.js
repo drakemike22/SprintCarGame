@@ -1093,7 +1093,7 @@ class RoomManager {
                 slot,
                 outcome: outcome.type,
                 consequence: outcome.consequence,
-                yellowFlag: false,
+                yellowFlag: outcome.consequence !== "none",
                 followOnSpins: [],
                 qualifyingFinishReason:
                     outcome.consequence === "none"
@@ -1185,7 +1185,7 @@ class RoomManager {
                 consequence: outcome.consequence,
                 yellowFlag: Boolean(outcome.yellowFlag),
                 followOnSpins: [...(outcome.followOnSpins ?? [])],
-                qualifyingFinishReason: "wreck"
+                qualifyingFinishReason: outcome.yellowFlag ? "wreck" : null
             };
 
             room.qualifyingWheelEvents.push({
@@ -1257,17 +1257,8 @@ class RoomManager {
                 );
             }
 
-            try {
-                room.season.finishQualifyingRun(
-                    incident.qualifyingFinishReason
-                );
-            } catch (error) {
-                throw new RoomError(
-                    "INCIDENT_FINISH_FAILED",
-                    error.message,
-                    409
-                );
-            }
+            activeResult.movementTurn.qualifyingFinishReason =
+                incident.qualifyingFinishReason;
         }
 
         room.pendingIncident = null;

@@ -298,7 +298,6 @@ class Season {
         };
     }
 
-
     startFirstEvent() {
         // The first event can only begin after the draft is complete.
         if (this.draft.status !== "complete") {
@@ -612,8 +611,11 @@ class Season {
         }
 
         const turn = result.movementTurn;
+
         if (turn.recorded) {
-            throw new Error("This qualifying movement roll has already been recorded.");
+            throw new Error(
+                "This qualifying movement roll has already been recorded."
+            );
         }
 
         if (
@@ -635,17 +637,46 @@ class Season {
             );
         }
 
-        const spaces = Math.max(0, turn.history.length - 1);
-        const finalPosition = { ...turn.position };
+        // Count every section actually traveled during this roll.
+        let spaces = Math.max(0, turn.history.length - 1);
+        let finalPosition = { ...turn.position };
 
+        // A backward-3 wreck retraces the actual route instead of
+        // selecting a new lane or calculating a different path.
+        if (
+            turn.wreckWheel?.result?.consequence === "backward-3"
+        ) {
+            if (turn.history.length < 4) {
+                throw new Error(
+                    "The qualifying route does not contain three spaces to retrace."
+                );
+            }
+
+            finalPosition = {
+                ...turn.history[turn.history.length - 4]
+            };
+
+            spaces -= 3;
+        }
+
+        const finishReason = turn.qualifyingFinishReason;
+
+        // Record movement before applying an early qualifying finish.
         const recordedResult = session.recordMovementRoll({
             spaces,
             finalPosition
         });
+
         turn.recorded = true;
 
-        // Clear only after a successful record. The next roll must
-        // create a new turn, with fresh dice and the saved final position.
+        // A yellow-flag incident ends qualifying after this roll is saved.
+        // The third roll may already have finished the run automatically.
+        if (
+            finishReason &&
+            session.activeResult === result
+        ) {
+            session.finishCurrentRun(finishReason);
+        }
 
         this.syncQualifyingResults();
 
