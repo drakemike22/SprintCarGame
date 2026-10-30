@@ -159,6 +159,21 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("qualifying-feedback");
     const qualifyingResults =
         document.getElementById("qualifying-results");
+    const liveQualifyingStandings =
+        document.getElementById("live-qualifying-standings");
+    const qualifyingEventLog =
+        document.getElementById("qualifying-event-log");
+    const pointStandingsList =
+        document.getElementById("point-standings-list");
+    const ownerPointStandingsList =
+        document.getElementById("owner-point-standings-list");
+    const trackRaceName = document.getElementById("track-race-name");
+    const trackProgress = document.getElementById("track-progress");
+    const trackPlayerLegend = document.getElementById("track-player-legend");
+    const trackCondition = document.getElementById("track-condition");
+    let qualifyingEventLogRoomCode = null;
+    let qualifyingWheelEvents = [];
+    const qualifyingWheelEventKeys = new Set();
     const raceControlHint =
         document.getElementById("race-control-hint");
 
@@ -186,19 +201,148 @@ document.addEventListener("DOMContentLoaded", () => {
         };
     })();
 
+    function recordQualifyingWheelEvent(room) {
+        if (!qualifyingEventLog) return;
+
+        const isQualifying =
+            room?.status === "started" &&
+            room?.event?.phase === "qualifying";
+
+        const eventsPanel =
+            qualifyingEventLog.closest(".race-events-panel");
+
+        if (eventsPanel) {
+            eventsPanel.hidden = !isQualifying;
+        }
+
+        // Clear the displayed history once qualifying has ended.
+        if (!isQualifying) {
+            qualifyingWheelEvents = [];
+            qualifyingEventLog.replaceChildren();
+            return;
+        }
+
+        if (qualifyingEventLogRoomCode !== room.code) {
+            qualifyingEventLogRoomCode = room.code;
+            qualifyingWheelEvents = [];
+            qualifyingWheelEventKeys.clear();
+        }
+
+        // The server keeps this history in the room snapshot, so every
+        // player's browser receives events even if the owner acknowledges
+        // the incident before another browser's next poll.
+        const sharedEvents = Array.isArray(room.qualifyingWheelEvents)
+            ? room.qualifyingWheelEvents
+            : [];
+
+        qualifyingWheelEvents = sharedEvents
+            .slice()
+            .reverse()
+            .map((entry) => ({
+                carNumber: entry.carNumber,
+                driverName: entry.driverName || "Unknown driver",
+                wheelType: entry.wheelType === "mechanical" ? "Mechanical wheel" : "Wreck wheel",
+                outcome: String(entry.outcome ?? "Outcome not provided").replaceAll("-", " "),
+                consequence: entry.consequence
+                    ? String(entry.consequence).replaceAll("-", " ")
+                    : "",
+                eventNumber: entry.eventNumber,
+                playerName: entry.playerName
+            }));
+
+        qualifyingEventLog.replaceChildren();
+        if (qualifyingWheelEvents.length === 0) {
+            const empty = document.createElement("li");
+            empty.className = "race-event-log-empty";
+            empty.textContent = "No qualifying wheel events yet.";
+            qualifyingEventLog.appendChild(empty);
+            return;
+        }
+
+        qualifyingWheelEvents.forEach((entry) => {
+            const item = document.createElement("li");
+            const car = document.createElement("strong");
+            car.className = "race-event-log-car";
+            car.textContent = `#${entry.carNumber ?? "?"} ${entry.driverName}`;
+
+            const details = document.createElement("span");
+            details.className = "race-event-log-details";
+            details.textContent = `${entry.wheelType}: ${entry.outcome}${
+                entry.consequence ? ` — ${entry.consequence}` : ""
+            }${entry.playerName ? ` · ${entry.playerName}` : ""}`;
+
+            item.append(car, details);
+            qualifyingEventLog.appendChild(item);
+        });
+    }
+
     function renderQualifying(room) {
         const event = room?.event;
         const qualifying = event?.qualifying;
+
+        // Show completed qualifying runs in descending distance order so the
+        // car that covered the most spaces is first and the least is last.
+        if (liveQualifyingStandings) {
+            liveQualifyingStandings.replaceChildren();
+            const qualifyingResultsForStandings = Array.isArray(qualifying?.standings)
+                ? qualifying.standings
+                : Array.isArray(qualifying?.completedRuns)
+                    ? qualifying.completedRuns
+                    : [];
+            const rankedResults = qualifyingResultsForStandings
+                .filter((result) => Number.isFinite(Number(result.distance)))
+                .slice()
+                .sort((a, b) => Number(b.distance) - Number(a.distance));
+
+            rankedResults.forEach((result, index) => {
+                const item = document.createElement("li");
+                const rank = document.createElement("span");
+                rank.className = "race-standings-rank";
+                rank.textContent = `${index + 1}.`;
+
+                const car = document.createElement("span");
+                car.className = "race-standings-car";
+                car.textContent = `#${result.carNumber} ${result.driverName}`;
+                car.title = `${result.playerName ?? ""}`.trim();
+
+                const distance = document.createElement("span");
+                distance.className = "race-standings-distance";
+                distance.textContent = `${Number(result.distance)} spaces`;
+
+                item.append(rank, car, distance);
+                liveQualifyingStandings.appendChild(item);
+            });
+
+            if (rankedResults.length === 0) {
+                const item = document.createElement("li");
+                item.className = "race-standings-empty";
+                item.textContent = "Qualifying results will appear here.";
+                liveQualifyingStandings.appendChild(item);
+            }
+        }
+
         const isQualifying =
             room?.status === "started" &&
             event?.phase === "qualifying" &&
             Boolean(qualifying);
 
         qualifyingControls.hidden = !isQualifying;
-        raceControlHint.hidden = isQualifying;
+        if (raceControlHint) raceControlHint.hidden = isQualifying;
 
         if (!isQualifying) {
             qualifyingMovementChoices.replaceChildren();
+            const summaryCar = document.getElementById("turn-summary-car");
+            const summaryMovement = document.getElementById("turn-summary-movement");
+            const summaryCarSpeed = document.getElementById("turn-summary-car-speed");
+            const summaryBonusSpeed = document.getElementById("turn-summary-bonus-speed");
+            const summaryLanes = document.getElementById("turn-summary-lanes");
+            const summaryDistance = document.getElementById("turn-summary-distance");
+            if (summaryCar) summaryCar.textContent = "Waiting for car";
+            if (summaryMovement) summaryMovement.textContent = "—";
+            if (summaryCarSpeed) summaryCarSpeed.textContent = "—";
+            if (summaryBonusSpeed) summaryBonusSpeed.textContent = "—";
+            if (summaryLanes) summaryLanes.textContent = "—";
+            if (summaryDistance) summaryDistance.textContent = "—";
             Object.values(qualifyingDiceValues).forEach((node) => {
                 if (node) node.textContent = "—";
             });
@@ -209,6 +353,122 @@ document.addEventListener("DOMContentLoaded", () => {
         const nextCar = qualifying.nextCar;
         const turn = activeRun?.movementTurn;
         const activeCarIsYours = Boolean(activeRun?.isYours);
+
+        // Keep the compact turn summary separate from the dice controls.
+        const summaryCar = document.getElementById("turn-summary-car");
+        const summaryMovement = document.getElementById("turn-summary-movement");
+        const summaryCarSpeed = document.getElementById("turn-summary-car-speed");
+        const summaryBonusSpeed = document.getElementById("turn-summary-bonus-speed");
+        const summaryLanes = document.getElementById("turn-summary-lanes");
+        const summaryDistance = document.getElementById("turn-summary-distance");
+        if (summaryCar) {
+            summaryCar.textContent = activeRun
+                ? `#${activeRun.carNumber} ${activeRun.driverName}`
+                : nextCar
+                    ? `#${nextCar.carNumber} ${nextCar.driverName}`
+                    : "Waiting for car";
+        }
+
+        const readFirstNumber = (object, keys) => {
+            for (const key of keys) {
+                if (Number.isFinite(object?.[key])) return object[key];
+            }
+            return null;
+        };
+        // Car movement ratings belong to the roster car. Depending on which
+        // race endpoint supplied the current run, that roster record may be
+        // nested instead of copied onto the run itself.
+        // Car movement ratings belong to the roster car. Depending on which
+        // race endpoint supplied the current run, that roster record may be
+        // nested instead of copied onto the run itself.
+        // The draft snapshot is the authoritative public roster record and
+        // includes the permanent ratings for every car already selected.
+        // Match it by the displayed car identity as a fallback in case the
+        // active qualifying result does not carry the ratings itself.
+        const displayedCar = activeRun ?? nextCar;
+        const matchingDraftPick = Array.isArray(room?.draft?.picks)
+            ? room.draft.picks.find((pick) =>
+                String(pick.carNumber) === String(displayedCar?.carNumber) &&
+                String(pick.driverName) === String(displayedCar?.driverName)
+            )
+            : null;
+
+        const carRecords = [
+            activeRun?.car, activeRun?.rosterCar, activeRun?.carStats,
+            activeRun?.car?.stats, activeRun?.rosterCar?.stats,
+            nextCar?.car, nextCar?.rosterCar, nextCar?.carStats,
+            nextCar?.car?.stats, nextCar?.rosterCar?.stats,
+            activeRun, nextCar, matchingDraftPick
+        ].filter(Boolean);
+        const carSpeed = carRecords
+            .map((record) => readFirstNumber(record, ["autoMovement", "carSpeed", "movementSpeed"]))
+            .find((value) => value !== null) ?? null;
+        const bonusSpeed = carRecords
+            .map((record) => readFirstNumber(record, ["bonusMovement", "bonusSpeed"]))
+            .find((value) => value !== null) ?? null;
+        if (summaryCarSpeed) summaryCarSpeed.textContent = carSpeed === null ? "—" : String(carSpeed);
+        if (summaryBonusSpeed) summaryBonusSpeed.textContent = bonusSpeed === null ? "—" : String(bonusSpeed);
+
+        const explicitMovementLeft = readFirstNumber(turn, [
+            "movementRemaining", "remainingMovement", "movementLeft", "stepsRemaining"
+        ]);
+        const movementDie = turn?.dice?.movement;
+        const laneDie = turn?.dice?.laneChange;
+        // Keep the original displayed movement allowance as the source of truth
+        // when the turn supplies it; only calculate a fallback if it does not.
+        // The fallback combines the car's auto movement, the movement die, and
+        // the matching-dice bonus when both dice values are available.
+        const matchingDiceBonus = Number.isFinite(movementDie) && Number.isFinite(laneDie) && movementDie === laneDie
+            ? 1
+            : 0;
+        const movementBudget = Number.isFinite(activeRun?.autoMovement) && Number.isFinite(movementDie)
+            ? activeRun.autoMovement + movementDie + matchingDiceBonus
+            : Number.isFinite(movementDie)
+                ? movementDie + matchingDiceBonus
+                : null;
+
+        const explicitLaneChangesLeft = readFirstNumber(turn, [
+            "laneChangesRemaining", "remainingLaneChanges", "laneChangesLeft"
+        ]);
+        const laneChangeBudget = readFirstNumber(turn, ["laneChangeAllowance", "laneChangesAllowed"]);
+        const laneChangesUsed = qualifyingPlannedPositions.reduce((count, position, index) => {
+            const previous = index === 0 ? (turn?.position ?? activeRun?.qualifyingPosition) : qualifyingPlannedPositions[index - 1];
+            return count + (previous && Number.isFinite(previous.lane) && previous.lane !== position.lane ? 1 : 0);
+        }, 0);
+        // Each selected destination represents one section of movement.
+        // Lane changes are tracked separately and do not subtract an extra
+        // movement point from this display.
+        const movementSpent = qualifyingPlannedPositions.length;
+        // Preserve the same starting number that this panel showed before
+        // path countdown was added. Subtract the planned path cost from that
+        // value first; use the calculated full budget only as a fallback.
+        const startingMovement = explicitMovementLeft !== null
+            ? explicitMovementLeft
+            : movementBudget;
+        const movementLeft = startingMovement !== null
+            ? Math.max(0, startingMovement - movementSpent)
+            : null;
+        if (summaryMovement) {
+            summaryMovement.textContent = movementLeft === null ? "—" : String(movementLeft);
+        }
+        // Lane changes are counted from the planned path too, so this value
+        // updates on every added/removed route step instead of waiting for
+        // the movement to be confirmed.
+        const laneChangesLeft = laneChangeBudget !== null
+            ? Math.max(0, laneChangeBudget - laneChangesUsed)
+            : explicitLaneChangesLeft !== null
+                ? Math.max(0, explicitLaneChangesLeft - laneChangesUsed)
+                : null;
+        if (summaryLanes) {
+            summaryLanes.textContent = laneChangesLeft === null ? "—" : String(laneChangesLeft);
+        }
+
+        const totalDistance = readFirstNumber(activeRun, [
+            "totalDistance", "distanceTravelled", "distanceTraveled", "distance", "totalSpacesMoved"
+        ]) ?? readFirstNumber(turn, ["totalDistance", "distanceTravelled", "distanceTraveled"]);
+        if (summaryDistance) {
+            summaryDistance.textContent = totalDistance === null ? "—" : `${totalDistance} spaces`;
+        }
         const nextCarIsYours = Boolean(!activeRun && nextCar?.isYours);
 
         qualifyingNextCar.textContent = activeRun
@@ -263,13 +523,20 @@ document.addEventListener("DOMContentLoaded", () => {
                                 : `Qualifying run in progress for car #${activeRun.carNumber}.`;
 
         qualifyingStartButton.hidden = Boolean(turn);
-        qualifyingStartButton.textContent = "Start Movement Turn";
+        // Starting a car's turn and rolling its movement are separate actions:
+        // first create/select the qualifying run, then roll movement dice.
+        qualifyingStartButton.textContent = activeRun
+            ? "Roll for movement"
+            : "Begin Turn";
+        // The route-confirmation button replaces the roll button once a
+        // movement turn is underway; do not show a second static button.
+        qualifyingRollButton.hidden = true;
         qualifyingStartButton.disabled =
             isRequestInProgress ||
             !activeCarIsYours && !nextCarIsYours ||
             qualifying.isComplete;
 
-        qualifyingRollButton.textContent = "Record Movement Roll";
+        qualifyingRollButton.textContent = "Confirm Movement";
         qualifyingRollButton.disabled =
             isRequestInProgress ||
             !activeCarIsYours ||
@@ -292,15 +559,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const plannedPositions = qualifyingPlannedPositions;
             const currentPosition = preview?.position ?? turn.position;
 
-            const positionLabel = document.createElement("p");
-            positionLabel.textContent =
-                `Starting space: section ${activeRun.qualifyingPosition?.section ?? turn.movementPlan?.currentPosition?.section ?? currentPosition?.section}, ` +
-                `lane ${activeRun.qualifyingPosition?.lane ?? turn.movementPlan?.currentPosition?.lane ?? currentPosition?.lane}. ` +
-                `Planned steps: ${plannedPositions.length}.`;
-            qualifyingMovementChoices.appendChild(positionLabel);
-
-            
-            
             if (needsWheel) {
                 const notice = document.createElement("p");
                 notice.textContent =
@@ -314,23 +572,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 (status === "waiting-for-choice" ||
                  plannedPositions.length > 0)
             ) {
-                const heading = document.createElement("h3");
-                heading.textContent = "Plan your route";
-                qualifyingMovementChoices.appendChild(heading);
-
-                const instructions = document.createElement("p");
-                instructions.textContent =
-                    "Click a highlighted legal space on the track to add it to your route. Right-click the track to undo the last planned step.";
-                qualifyingMovementChoices.appendChild(instructions);
-
-                const routeStatus = document.createElement("p");
-                routeStatus.textContent = preview
-                    ? `Preview: ${preview.status}. Movement remaining: ${preview.movementRemaining ?? "—"}.`
-                    : "Select a legal space to preview your route.";
-                qualifyingMovementChoices.appendChild(routeStatus);
-
                 const confirmButton = document.createElement("button");
                 confirmButton.type = "button";
+                confirmButton.className = "qualifying-confirm-movement-button";
                 confirmButton.textContent = "Confirm Movement";
                 confirmButton.disabled =
                     isRequestInProgress ||
@@ -375,9 +619,29 @@ document.addEventListener("DOMContentLoaded", () => {
                 qualifyingMovementChoices.appendChild(confirmButton);
             } else if (status === "complete" || status === "stuck") {
                 const notice = document.createElement("p");
-                notice.textContent =
-                    "Movement is confirmed. Record this qualifying roll when ready.";
+                notice.textContent = turn.routeConfirmed
+                    ? "Movement is confirmed. Record this qualifying roll when ready."
+                    : "Movement is finished. Confirm the route to record this qualifying roll.";
                 qualifyingMovementChoices.appendChild(notice);
+
+                // A required wheel can interrupt the normal confirm-and-record
+                // sequence. Once it is acknowledged, the route is already
+                // confirmed, so expose the missing record action here.
+                if (turn.routeConfirmed && !needsWheel && activeCarIsYours) {
+                    const recordButton = document.createElement("button");
+                    recordButton.type = "button";
+                    recordButton.className = "qualifying-confirm-movement-button";
+                    recordButton.textContent = "Record Qualifying Roll";
+                    recordButton.disabled = isRequestInProgress;
+                    recordButton.addEventListener("click", async () => {
+                        await submitQualifyingAction(
+                            "/qualifying/movement/record",
+                            {},
+                            "Qualifying movement roll recorded."
+                        );
+                    });
+                    qualifyingMovementChoices.appendChild(recordButton);
+                }
             }
             /*
             * Automatically request an incident wheel when the server says
@@ -1619,7 +1883,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 carNumber: qualifyingRun.carNumber,
                 driverName: qualifyingRun.driverName,
                 playerName: qualifyingRun.playerName,
-                ownerColor: "#f0b429",
+                ownerColor: getOwnerBaseColor(room, qualifyingRun.playerName),
                 status: "running",
                 position: qualifyingPosition
             });
@@ -1673,20 +1937,21 @@ document.addEventListener("DOMContentLoaded", () => {
             // The base color comes from the server's public race snapshot.
             const base = document.createElementNS(svgNamespace, "ellipse");
             base.setAttribute("cx", "0");
-            base.setAttribute("cy", "3");
-            base.setAttribute("rx", "9");
-            base.setAttribute("ry", "5");
+            base.setAttribute("cy", "4");
+            base.setAttribute("rx", "18.5");
+            base.setAttribute("ry", "10");
             base.style.fill = car.ownerColor ?? "#172129";
             base.setAttribute("stroke", "#101820");
             base.setAttribute("stroke-width", "1");
 
             // Temporary car body; custom car artwork can replace this later.
             const body = document.createElementNS(svgNamespace, "rect");
-            body.setAttribute("x", "-7");
-            body.setAttribute("y", "-7");
-            body.setAttribute("width", "14");
-            body.setAttribute("height", "10");
-            body.setAttribute("rx", "3");
+            body.setAttribute("x", "-17.5");
+            body.setAttribute("y", "-14.5");
+            body.setAttribute("width", "35");
+            body.setAttribute("height", "25");
+            body.setAttribute("rx", "4");
+            body.style.stroke = car.ownerColor ?? "#f4d29b";
 
             const number = document.createElementNS(svgNamespace, "text");
             number.setAttribute("x", "0");
@@ -1731,6 +1996,226 @@ document.addEventListener("DOMContentLoaded", () => {
             incidentDialog.showModal();
         }
     }
+    function renderChampionshipStandings(room) {
+        // Car championship standings.
+        if (pointStandingsList) {
+            pointStandingsList.replaceChildren();
+
+            const standings = Array.isArray(room.pointStandings)
+                ? room.pointStandings
+                : [];
+
+            standings.forEach((standing) => {
+                const item = document.createElement("li");
+
+                const position = document.createElement("span");
+                position.className = "race-standings-rank";
+                position.textContent = `${standing.position}.`;
+
+                const car = document.createElement("span");
+                car.className = "race-standings-car";
+                car.textContent =
+                    `#${standing.carNumber ?? "?"} ${standing.driverName}`;
+
+                const points = document.createElement("span");
+                points.className = "race-standings-distance";
+                points.textContent = `${standing.points} pts`;
+
+                item.append(position, car, points);
+                pointStandingsList.appendChild(item);
+            });
+
+            if (standings.length === 0) {
+                const item = document.createElement("li");
+                item.className = "race-standings-empty";
+                item.textContent = "Point standings are unavailable.";
+                pointStandingsList.appendChild(item);
+            }
+        }
+
+        // Owner championship standings.
+        if (ownerPointStandingsList) {
+            ownerPointStandingsList.replaceChildren();
+
+            const standings = Array.isArray(room.ownerPointStandings)
+                ? room.ownerPointStandings
+                : [];
+
+            standings.forEach((standing) => {
+                const item = document.createElement("li");
+
+                const position = document.createElement("span");
+                position.className = "race-standings-rank";
+                position.textContent = `${standing.position}.`;
+
+                const owner = document.createElement("span");
+                owner.className = "race-standings-car";
+                owner.textContent = standing.playerName;
+
+                const points = document.createElement("span");
+                points.className = "race-standings-distance";
+                points.textContent = `${standing.points} pts`;
+
+                item.append(position, owner, points);
+                ownerPointStandingsList.appendChild(item);
+            });
+
+            if (standings.length === 0) {
+                const item = document.createElement("li");
+                item.className = "race-standings-empty";
+                item.textContent = "Owner standings are unavailable.";
+                ownerPointStandingsList.appendChild(item);
+            }
+        }
+    }
+
+    function getTrackRaceLabel(event) {
+        const phase = String(event?.phase ?? "").toLowerCase();
+        const raceName = String(
+            event?.raceName ??
+            event?.raceType ??
+            event?.race ??
+            event?.activeRace?.name ??
+            ""
+        ).toLowerCase();
+
+        if (phase === "qualifying" || raceName.includes("qualifying")) {
+            return "Qualifying";
+        }
+
+        const heatMatch = `${phase} ${raceName}`.match(/heat\\s*[-_ ]?([1-4])/);
+        if (heatMatch) return `Heat ${heatMatch[1]}`;
+
+        if (phase.includes("b-main") || phase.includes("b_main") ||
+            raceName.includes("b-main") || raceName.includes("b main")) {
+            return "B Main";
+        }
+
+        if (phase.includes("a-main") || phase.includes("a_main") ||
+            raceName.includes("a-main") || raceName.includes("a main")) {
+            return "A Main";
+        }
+
+        if (event?.activeRace) return "Race";
+        return "Waiting for race";
+    }
+
+    function getTrackProgressText(event, raceLabel) {
+        if (raceLabel === "Qualifying") {
+            const qualifying = event?.qualifying;
+            const activeRun = qualifying?.activeRun;
+            const nextCar = qualifying?.nextCar;
+            const rollsCompleted = Number(
+                activeRun?.rollsCompleted ?? nextCar?.rollsCompleted ?? 0
+            );
+            const currentRoll = Math.min(3, Math.max(1, rollsCompleted + 1));
+            return `Roll ${currentRoll}/3`;
+        }
+
+        const race = event?.activeRace;
+        const cars = Array.isArray(race?.cars) ? race.cars : [];
+        const currentCar = cars.find((car) =>
+            car?.isCurrentTurn || car?.isActive || car?.isUp
+        ) ?? cars[0];
+
+        const readNumber = (objects, keys) => {
+            for (const object of objects) {
+                for (const key of keys) {
+                    const value = object?.[key];
+                    if (Number.isFinite(value)) return value;
+                }
+            }
+            return null;
+        };
+
+        const currentLap = readNumber(
+            [race, currentCar, event],
+            ["currentLap", "lapNumber", "lap"]
+        );
+        const completedLaps = readNumber(
+            [race, currentCar, event],
+            ["lapsCompleted"]
+        );
+        const totalLaps = readNumber(
+            [race, currentCar, event],
+            ["totalLaps", "lapsToRun", "requiredLaps", "raceLaps", "lapLimit", "lapCount", "numberOfLaps"]
+        );
+        const displayedLap = currentLap !== null
+            ? currentLap
+            : completedLaps !== null
+                ? completedLaps + 1
+                : null;
+
+        if (displayedLap !== null && totalLaps !== null) {
+            return `Laps ${Math.max(1, displayedLap)}/${totalLaps}`;
+        }
+
+        return "Laps —/—";
+    }
+
+    function getOwnerBaseColor(room, playerName) {
+        const player = room?.players?.find((entry) => entry.name === playerName);
+        const matchingPick = room?.draft?.picks?.find(
+            (pick) => pick.playerName === playerName
+        );
+        const matchingRaceCar = room?.event?.activeRace?.cars?.find(
+            (car) => car.playerName === playerName
+        );
+
+        return (
+            player?.ownerColor ??
+            player?.carBaseColor ??
+            player?.preferredOwnerColor ??
+            player?.preferredColor ??
+            player?.color ??
+            matchingPick?.ownerColor ??
+            matchingPick?.carBaseColor ??
+            matchingRaceCar?.ownerColor ??
+            "#7b858b"
+        );
+    }
+
+    function renderTrackStatus(room) {
+        if (!trackRaceName || !trackProgress || !trackPlayerLegend) return;
+
+        const event = room?.event;
+        const raceLabel = getTrackRaceLabel(event);
+        trackRaceName.textContent = raceLabel;
+        trackProgress.textContent = getTrackProgressText(event, raceLabel);
+        if (trackCondition) {
+            trackCondition.textContent =
+                `Track Condition: ${event?.trackCondition ?? "Normal"}`;
+        }
+
+        trackPlayerLegend.replaceChildren();
+
+        const players = Array.isArray(room?.players) ? room.players : [];
+        players.forEach((player) => {
+            const color = getOwnerBaseColor(room, player.name);
+
+            const item = document.createElement("span");
+            item.className = "race-track-player";
+
+            const marker = document.createElement("span");
+            marker.className = "race-track-player-color";
+            marker.style.backgroundColor = color;
+            marker.setAttribute("aria-hidden", "true");
+
+            const name = document.createElement("span");
+            name.className = "race-track-player-name";
+            name.textContent = player.name;
+
+            item.append(marker, name);
+            trackPlayerLegend.appendChild(item);
+        });
+
+        if (players.length === 0) {
+            const empty = document.createElement("span");
+            empty.className = "race-track-player-empty";
+            empty.textContent = "Waiting for players";
+            trackPlayerLegend.appendChild(empty);
+        }
+    }
 
     function renderRoom(room) {
         if (
@@ -1746,6 +2231,21 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         currentRoom = room;
+        renderTrackStatus(room);
+        renderChampionshipStandings(room);
+        if (qualifyingEventLogRoomCode !== room.code) {
+            qualifyingEventLogRoomCode = room.code;
+            qualifyingWheelEvents = [];
+            qualifyingWheelEventKeys.clear();
+            if (qualifyingEventLog) {
+                qualifyingEventLog.replaceChildren();
+                const empty = document.createElement("li");
+                empty.className = "race-event-log-empty";
+                empty.textContent = "No qualifying wheel events yet.";
+                qualifyingEventLog.appendChild(empty);
+            }
+        }
+        recordQualifyingWheelEvent(room);
         renderIncident(room);
         renderRaceTokens(room);
         if (room.status === "started" && room.event) {

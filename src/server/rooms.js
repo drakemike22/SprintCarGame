@@ -131,7 +131,9 @@ class RoomManager {
                     ready: false
                 }
             ],
-            pendingIncident: null
+            pendingIncident: null,
+            // Persistent room history so every player can see qualifying wheel events.
+            qualifyingWheelEvents: []
 
         };
 
@@ -1098,6 +1100,18 @@ class RoomManager {
                         ? null
                         : "mechanical-failure"
             };
+
+            room.qualifyingWheelEvents.push({
+                id: crypto.randomUUID(),
+                eventNumber: room.season.currentEvent?.eventNumber ?? null,
+                carNumber: car?.number ?? String(result.carId),
+                driverName: car?.driverName ?? "Unknown driver",
+                playerName: player.name,
+                wheelType: "mechanical",
+                outcome: outcome.type,
+                consequence: outcome.consequence,
+                createdAt: Date.now()
+            });
         } catch (error) {
             if (error instanceof RoomError) throw error;
 
@@ -1173,6 +1187,18 @@ class RoomManager {
                 followOnSpins: [...(outcome.followOnSpins ?? [])],
                 qualifyingFinishReason: "wreck"
             };
+
+            room.qualifyingWheelEvents.push({
+                id: crypto.randomUUID(),
+                eventNumber: room.season.currentEvent?.eventNumber ?? null,
+                carNumber: car?.number ?? String(result.carId),
+                driverName: car?.driverName ?? "Unknown driver",
+                playerName: player.name,
+                wheelType: "wreck",
+                outcome: outcome.type,
+                consequence: outcome.consequence,
+                createdAt: Date.now()
+            });
         } catch (error) {
             if (error instanceof RoomError) throw error;
 
@@ -1560,12 +1586,18 @@ class RoomManager {
             allPlayersReady: room.players.every(
                 (player) => player.ready
             ),
-                        players: room.players.map((player) => ({
+            players: room.players.map((player) => ({
                 name: player.name,
+                color: room.season?.players.find(
+                    (seasonPlayer) => seasonPlayer.id === player.id
+                )?.color ?? null,
                 ready: player.ready,
                 isHost: player.id === room.hostPlayerId,
                 isYou: player.id === viewerPlayerId
             })),
+            qualifyingWheelEvents: (room.qualifyingWheelEvents ?? []).map(
+                (entry) => ({ ...entry })
+            ),
             pendingIncident: room.pendingIncident
                 ? {
                     carNumber: room.pendingIncident.carNumber,
@@ -1605,6 +1637,30 @@ class RoomManager {
         const carsById = new Map(
             season.cars.map((car) => [car.id, car])
         );
+                // Publish the official car championship standings using
+        // display-safe car information only.
+        snapshot.pointStandings = season
+            .getChampionshipStandings()
+            .map((standing) => {
+                const car = carsById.get(standing.carId);
+
+                return {
+                    position: standing.championshipPosition,
+                    carNumber: car?.number ?? null,
+                    driverName: car?.driverName ?? "Unknown driver",
+                    points: standing.points
+                };
+            });
+
+        // Publish each player's combined points across all owned cars.
+        snapshot.ownerPointStandings = season
+            .getOwnerChampionshipStandings()
+            .map((standing) => ({
+                position: standing.championshipPosition,
+                playerName: standing.playerName,
+                points: standing.points,
+                carCount: standing.carCount
+            }));
 
         const totalPicks =
             Math.floor(
@@ -1709,6 +1765,8 @@ class RoomManager {
                 return {
                     carNumber: car?.number ?? null,
                     driverName: car?.driverName ?? null,
+                    autoMovement: car?.autoMovement ?? null,
+                    bonusMovement: car?.bonusMovement ?? null,
                     playerName: playerNames.get(ownerId) ?? null,
                     isYours: ownerId === viewerPlayerId,
                     rollsCompleted: result.rollsCompleted,
@@ -1749,6 +1807,8 @@ class RoomManager {
                     nextCar = {
                         carNumber: car?.number ?? null,
                         driverName: car?.driverName ?? null,
+                        autoMovement: car?.autoMovement ?? null,
+                        bonusMovement: car?.bonusMovement ?? null,
                         playerName: playerNames.get(ownerId) ?? null,
                         isYours: ownerId === viewerPlayerId
                     };
@@ -1817,6 +1877,7 @@ class RoomManager {
             snapshot.event = {
                 eventNumber: currentEvent.eventNumber,
                 phase: currentEvent.phase,
+                trackCondition: currentEvent.trackCondition,
                 activeRace,
                 qualifying: qualifyingSession ? {
                     isComplete: qualifyingSession.isComplete,

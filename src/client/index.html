@@ -303,34 +303,17 @@
                         <!-- Race screen: visual shell to be connected to live engine state. -->
             <section class="page-section race-page"
                      id="page-race" data-page-section="race"
-                     aria-labelledby="race-title" hidden>
-
-                <div class="race-page-heading">
-                    <div>
-                        <p class="eyebrow">RACE CONTROL</p>
-                        <h1 id="race-title">Race Day</h1>
-                        <p class="race-subtitle">
-                            Your team, the track, and every moment of the race.
-                        </p>
-                    </div>
-                    <div class="race-connection-status">
-                        <span class="race-status-dot"></span>
-                        Waiting for race state
-                    </div>
-                </div>
+                     aria-labelledby="track-heading" hidden>
 
                 <div class="race-main-layout">
+                    <div class="race-left-column">
                     <section class="race-track-panel" aria-labelledby="track-heading">
-                        <div class="race-panel-heading">
-                            <div>
-                                <p class="eyebrow">THE SPEEDWAY</p>
-                                <h2 id="track-heading">Track View</h2>
-                            </div>
-                            <span class="race-panel-note">30 sections Â· 4 lanes</span>
+                        <div class="race-track-status" aria-label="Current race status">
+                            <strong id="track-race-name">Waiting for race</strong>
+                            <strong id="track-progress">—</strong>
                         </div>
-
                         <div class="race-track-viewport">
-                            <svg class="race-track-svg" viewBox="0 0 1000 500" role="img" aria-labelledby="track-svg-title track-svg-description">
+                            <svg class="race-track-svg" viewBox="0 40 1000 420" role="img" aria-labelledby="track-svg-title track-svg-description">
 <title id="track-svg-title">Four-lane sprint car oval track</title>
 <desc id="track-svg-description">Thirty numbered spaces, four lanes, two straights, two semicircular turns, and a start/finish line between spaces 29 and 0.</desc>
 <defs><pattern id="track-dirt-texture" width="13" height="13" patternUnits="userSpaceOnUse"><path d="M1 3 l4 1 M7 9 l3 -1 M3 12 l2 -1" stroke="#4b2c19" stroke-width=".8" opacity=".32"/><circle cx="10" cy="3" r=".7" fill="#e1b17c" opacity=".25"/></pattern></defs>
@@ -513,101 +496,23 @@
 </svg>
 
                         </div>
-
-                        <div class="race-track-legend">
-                            <span><i class="legend-swatch legend-lane"></i> Racing lanes</span>
-                            <span><i class="legend-swatch legend-divider"></i> Section boundaries</span>
-                            <span><i class="legend-swatch legend-start"></i> Start / finish</span>
+                        <div id="track-player-legend" class="race-track-player-legend"
+                             aria-label="Player car-base colors">
+                            <span class="race-track-player-empty">Waiting for players</span>
+                        </div>
+                        <div id="track-condition" class="race-track-condition">
+                            Track Condition: Normal
                         </div>
                     </section>
+
+
+                    </div>
 
                     <aside class="race-sidebar">
-                        <section class="race-info-panel" aria-labelledby="current-race-heading">
-                            <div class="race-panel-heading">
-                                <div>
-                                    <p class="eyebrow">AT THE TRACK</p>
-                                    <h2 id="current-race-heading">Current Race</h2>
-                                </div>
-                            </div>
 
-                            <div class="race-segment-placeholder">
-                                <span class="race-info-label">Current segment</span>
-                                <strong>Awaiting event</strong>
-                                <span class="race-muted">Qualifying Â· Heats Â· B Main Â· A Main</span>
-                            </div>
-
-                            <dl class="race-info-list">
-                                <div>
-                                    <dt>Lap</dt>
-                                    <dd>â€”</dd>
-                                </div>
-                                <div>
-                                    <dt>Leader</dt>
-                                    <dd>â€”</dd>
-                                </div>
-                                <div>
-                                    <dt>Track condition</dt>
-                                    <dd>â€”</dd>
-                                </div>
-                                <div>
-                                    <dt>Race status</dt>
-                                    <dd><span class="race-status-pill">Not started</span></dd>
-                                </div>
-                            </dl>
-                        </section>
-
-                        <section class="race-info-panel" aria-labelledby="standings-heading">
-                            <div class="race-panel-heading">
-                                <div>
-                                    <p class="eyebrow">ON THE CLOCK</p>
-                                    <h2 id="standings-heading">Live Standings</h2>
-                                </div>
-                            </div>
-
-                            <div class="race-empty-state">
-                                <span class="race-empty-icon" aria-hidden="true">â‰¡</span>
-                                <p>Race order will appear here.</p>
-                                <span>Standings will come from the game engine.</span>
-                            </div>
-                        </section>
-
-                        <section class="race-info-panel race-events-panel"
-                                 aria-labelledby="recent-events-heading">
-                            <div class="race-panel-heading">
-                                <div>
-                                    <p class="eyebrow">RACE RADIO</p>
-                                    <h2 id="recent-events-heading">Recent Events</h2>
-                                </div>
-                            </div>
-
-                            <div class="race-empty-state">
-                                <span class="race-empty-icon" aria-hidden="true">â—·</span>
-                                <p>No race events yet.</p>
-                                <span>Dice rolls, moves, and incidents will appear here.</span>
-                            </div>
-                        </section>
-                    </aside>
-                </div>
-
-                <div class="race-bottom-layout">
-                    <section class="race-bottom-panel" aria-labelledby="your-car-heading">
+                    <section class="race-bottom-panel race-info-panel race-movement-panel" aria-labelledby="movement-heading">
                         <div class="race-panel-heading">
                             <div>
-                                <p class="eyebrow">YOUR TEAM</p>
-                                <h2 id="your-car-heading">Your Car</h2>
-                            </div>
-                        </div>
-                        <div class="race-empty-state race-bottom-empty">
-                            <span class="race-empty-icon" aria-hidden="true">â—ˆ</span>
-                            <p>Your active car will appear here.</p>
-                            <span>Driver, number, movement stats, and status.</span>
-                        </div>
-                    </section>
-
-                    <section class="race-bottom-panel" aria-labelledby="movement-heading">
-                        <div class="race-panel-heading">
-                            <div>
-                                <p class="eyebrow">YOUR TURN</p>
                                 <h2 id="movement-heading">Dice &amp; Movement</h2>
                             </div>
                         </div>
@@ -639,11 +544,11 @@
 
                         <div class="qualifying-actions">
                             <button id="qualifying-start-button" type="button">
-                                Start Qualifying Run
+                                Roll for movement
                             </button>
 
                             <button id="qualifying-roll-button" type="button" disabled>
-                                Roll Qualifying Die
+                                Confirm Movement
                             </button>
 
                             <button id="qualifying-wreck-button" type="button" disabled>
@@ -661,29 +566,105 @@
                         <ol id="qualifying-results"></ol>
                     </div>
 
-                    <p class="race-control-hint" id="race-control-hint">
-                        Race controls will activate when a heat or feature race begins.
-                    </p>
-
-                    <button class="race-primary-button" type="button" disabled>
-                        Waiting for race engine
-                    </button>
                         
                     </section>
 
-                    <section class="race-bottom-panel" aria-labelledby="action-log-heading">
+                    <section class="race-info-panel race-turn-summary-panel" aria-labelledby="turn-summary-heading">
                         <div class="race-panel-heading">
                             <div>
-                                <p class="eyebrow">PLAY-BY-PLAY</p>
-                                <h2 id="action-log-heading">Action Log</h2>
+                                <h2 id="turn-summary-heading">Current Turn</h2>
                             </div>
                         </div>
-                        <div class="race-empty-state race-bottom-empty">
-                            <span class="race-empty-icon" aria-hidden="true">â˜·</span>
-                            <p>The action log is empty.</p>
-                            <span>Moves and decisions will be recorded here.</span>
+                        <div class="race-turn-car-name">
+                            <span class="race-info-label">Turn car</span>
+                            <strong id="turn-summary-car">Waiting for car</strong>
+                        </div>
+                        <div class="race-turn-stats">
+                            <div class="race-turn-stat">
+                                <span>Car Speed</span>
+                                <strong id="turn-summary-car-speed">—</strong>
+                            </div>
+                            <div class="race-turn-stat">
+                                <span>Bonus Speed</span>
+                                <strong id="turn-summary-bonus-speed">—</strong>
+                            </div>
+                            <div class="race-turn-stat">
+                                <span>Movement left</span>
+                                <strong id="turn-summary-movement">—</strong>
+                            </div>
+                            <div class="race-turn-stat">
+                                <span>Lane changes left</span>
+                                <strong id="turn-summary-lanes">—</strong>
+                            </div>
+                            <div class="race-turn-stat race-turn-stat-wide">
+                                <span>Total distance</span>
+                                <strong id="turn-summary-distance">—</strong>
+                            </div>
                         </div>
                     </section>
+
+
+
+
+
+                    </aside>
+
+                    <div class="race-under-track-layout">
+                        <section class="race-info-panel" aria-labelledby="standings-heading">
+                            <div class="race-panel-heading">
+                                <div>
+                                    <h2 id="standings-heading">Live Standings</h2>
+                                </div>
+                            </div>
+
+                            <div class="race-qualifying-standings-wrap">
+                                <ol id="live-qualifying-standings" class="race-qualifying-standings">
+                                    <li class="race-standings-empty">Qualifying results will appear here.</li>
+                                </ol>
+                            </div>
+                        </section>
+
+                        <section class="race-info-panel race-events-panel"
+                                 aria-labelledby="recent-events-heading">
+                            <div class="race-panel-heading">
+                                <div>
+                                    <h2 id="recent-events-heading">Recent Events</h2>
+                                </div>
+                            </div>
+
+                            <ol id="qualifying-event-log" class="race-event-log" aria-live="polite">
+                                <li class="race-event-log-empty">No qualifying wheel events yet.</li>
+                            </ol>
+                        </section>
+
+                    <section class="race-bottom-panel" aria-labelledby="owner-point-standings-heading">
+                        <div class="race-panel-heading">
+                            <div>
+                                <h2 id="owner-point-standings-heading">Owner Points Standings</h2>
+                            </div>
+                        </div>
+                        <ol id="owner-point-standings-list" class="race-qualifying-standings">
+                            <li class="race-standings-empty">Owner standings will appear here.</li>
+                        </ol>
+                    </section>
+
+                    <section class="race-info-panel race-point-standings-panel" aria-labelledby="point-standings-heading">
+                        <div class="race-panel-heading">
+                            <div>
+                                <h2 id="point-standings-heading">Point Standings</h2>
+                            </div>
+                        </div>
+                        <ol id="point-standings-list" class="race-qualifying-standings">
+                            <li class="race-standings-empty">Point standings will appear here.</li>
+                        </ol>
+                    </section>
+                    </div>
+                </div>
+
+                <div class="race-bottom-layout">
+
+
+
                 </div>
             </section>
 

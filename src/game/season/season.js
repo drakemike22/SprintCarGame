@@ -56,7 +56,7 @@ const {
     resolveWreckSpinner
 } = require("../rules/turn");
 class Season {
-    constructor({ id, players, cars, eventCount }) {
+    constructor({ id, players, cars, eventCount, random = Math.random }) {
         // ---------------------------------------------------------
         // 1. Validate the season's identifying information
         // ---------------------------------------------------------
@@ -153,6 +153,11 @@ class Season {
         // ---------------------------------------------------------
         // 4. Store the validated starting season data
         // ---------------------------------------------------------
+        if (typeof random !== "function") {
+            throw new Error("Random must be a function.");
+        }
+
+        this.random = random;
 
         this.id = id.trim();
 
@@ -217,6 +222,9 @@ class Season {
         // Each player must confirm they're ready before the next
         // event begins. This starts empty; readiness rules come later.
         this.readyPlayerIds = [];
+    }
+    _spinTrackCondition() {
+        return this.random() < 0.2 ? "Dry" : "Normal";
     }
 
     selectCar(playerId, carId) {
@@ -307,6 +315,20 @@ class Season {
         const qualifyingCarIds = this.draft.picks.map(
             (pick) => pick.carId
         );
+        // Randomize qualifying order without changing the draft order.
+        for (let index = qualifyingCarIds.length - 1; index > 0; index--) {
+            const randomIndex = Math.floor(
+                this.random() * (index + 1)
+            );
+
+            [
+                qualifyingCarIds[index],
+                qualifyingCarIds[randomIndex]
+            ] = [
+                qualifyingCarIds[randomIndex],
+                qualifyingCarIds[index]
+            ];
+        }
 
         const qualifyingSession = new QualifyingSession(
             qualifyingCarIds
@@ -316,6 +338,7 @@ class Season {
         this.currentEvent = {
             eventNumber: 1,
             phase: "qualifying",
+            trackCondition: "Normal",
             qualifyingResults: [],
             qualifyingSession
         };
@@ -426,6 +449,20 @@ class Season {
         const qualifyingCarIds = this.draft.picks.map(
             (pick) => pick.carId
         );
+        // Randomize qualifying order without changing the draft order.
+        for (let index = qualifyingCarIds.length - 1; index > 0; index--) {
+            const randomIndex = Math.floor(
+                this.random() * (index + 1)
+            );
+
+            [
+                qualifyingCarIds[index],
+                qualifyingCarIds[randomIndex]
+            ] = [
+                qualifyingCarIds[randomIndex],
+                qualifyingCarIds[index]
+            ];
+        }
 
         const qualifyingSession = new QualifyingSession(
             qualifyingCarIds
@@ -434,6 +471,7 @@ class Season {
         this.currentEvent = {
             eventNumber: this.currentEventNumber,
             phase: "qualifying",
+            trackCondition: "Normal",
             qualifyingResults: [],
             qualifyingSession
         };
@@ -686,6 +724,8 @@ class Season {
             heatNumber: heat.heatNumber,
             results: []
         }));
+        // One track-condition spin applies to all four heats.
+        this.currentEvent.trackCondition = this._spinTrackCondition();
 
         this.currentEvent.phase = "heats";
 
@@ -1291,12 +1331,15 @@ class Season {
         });
 
         this.currentEvent.bMainLineup = { entries };
-        this.currentEvent.phase = "b-main";
 
+        // One track-condition spin applies to the B Main and A Main.
+        this.currentEvent.trackCondition = this._spinTrackCondition();
+
+        this.currentEvent.phase = "b-main";
         return this.currentEvent.bMainLineup;
     }
 
-     /*
+    /*
      * Record the B-main directly from its completed race state.
      */
     recordBMainRaceResults(raceState, officialCarOrder) {

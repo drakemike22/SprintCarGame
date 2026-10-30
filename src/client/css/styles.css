@@ -328,7 +328,7 @@ a {
 .caption-label {
     display: block;
     color: var(--muted);
-    font-size: 9px;
+    font-size: 11px;
     font-weight: 800;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -1555,9 +1555,23 @@ a {
    This is a display shell; live game data is connected later.
    ========================================================= */
 
+.page-shell:has(#page-race:not([hidden])) {
+    /* Keep the laptop layout wide while avoiding an oversized layout on very large displays. */
+    width: calc(100% - 40px);
+    max-width: 1800px;
+}
+
+@media (min-width: 1600px) {
+    .page-shell:has(#page-race:not([hidden])) {
+        /* Slightly more breathing room on large monitors; laptop sizing stays unchanged. */
+        max-width: 1640px;
+    }
+}
+
 .race-page {
     color: #edf2f5;
-    max-width: 1600px;
+    width: 100%;
+    max-width: none;
     margin: 0 auto;
 }
 
@@ -1567,10 +1581,6 @@ a {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-}
-
-.race-page-heading {
-    margin-bottom: 24px;
 }
 
 .race-page-heading h1 {
@@ -1612,7 +1622,84 @@ a {
     display: grid;
     grid-template-columns: minmax(0, 3.2fr) minmax(270px, 1fr);
     gap: 18px;
+    /* Match the combined sidebar panels to the track panel height. */
     align-items: stretch;
+}
+
+/* Keep the track in the left column and span the four equal information panels across the full race layout. */
+.race-left-column {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    min-width: 0;
+}
+
+.race-under-track-layout {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    min-width: 0;
+    align-items: stretch;
+}
+
+.race-under-track-layout > .race-info-panel {
+    min-width: 0;
+    height: 100%;
+}
+
+.race-qualifying-standings-wrap {
+    min-width: 0;
+}
+
+.race-standings-caption {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: .76rem;
+}
+
+.race-qualifying-standings {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.race-qualifying-standings li {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid #303e47;
+    border-radius: 7px;
+    background: #10171b;
+    font-size: .8rem;
+}
+
+.race-qualifying-standings .race-standings-rank {
+    color: var(--accent);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.race-qualifying-standings .race-standings-car {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.race-qualifying-standings .race-standings-distance {
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.race-qualifying-standings .race-standings-empty {
+    display: block;
+    color: var(--muted);
 }
 
 .race-track-panel,
@@ -1626,25 +1713,14 @@ a {
 }
 
 .race-track-panel {
-    padding: 18px;
-}
-
-.race-panel-heading {
-    margin-bottom: 16px;
-}
-
-.race-panel-heading h2 {
-    margin: 0;
-    font-size: 1.05rem;
-}
-
-.race-panel-note {
-    color: #9eabb6;
-    font-size: .8rem;
-    text-align: right;
+    /* Let the track artwork rise to the top of its panel. */
+    position: relative;
+    padding: 0 18px 0;
 }
 
 .race-track-viewport {
+    /* The SVG viewBox is shifted upward so the oval nearly reaches the top edge. */
+    margin-top: 0;
     overflow: hidden;
     border-radius: 12px;
     background: #10191f;
@@ -1754,6 +1830,16 @@ a {
     flex-direction: column;
     gap: 14px;
     min-width: 0;
+    min-height: 0;
+}
+
+.race-sidebar .race-movement-panel {
+    flex: 0 0 auto;
+}
+
+.race-sidebar .race-turn-summary-panel {
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .race-info-panel {
@@ -1853,7 +1939,7 @@ a {
 
 .race-bottom-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, .95fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px;
     margin-top: 18px;
     align-items: stretch;
@@ -1862,6 +1948,63 @@ a {
 .race-bottom-panel {
     padding: 18px;
 }
+
+/* Dice and movement controls live together at the top of the right sidebar. */
+.race-movement-panel {
+    padding: 15px;
+}
+
+.race-movement-panel .race-dice-row {
+    margin-bottom: 14px;
+}
+
+.race-movement-panel .qualifying-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.race-movement-panel .qualifying-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.race-movement-panel .qualifying-actions button,
+.race-movement-panel .race-primary-button {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid var(--accent-dark);
+    border-radius: 9px;
+    padding: 10px 12px;
+    color: #11140a;
+    background: var(--accent);
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.race-movement-panel .qualifying-actions button:hover:not(:disabled),
+.race-movement-panel .race-primary-button:hover:not(:disabled) {
+    background: #f0ff91;
+}
+
+.race-movement-panel .qualifying-actions button:disabled,
+.race-movement-panel .race-primary-button:disabled {
+    color: #827548;
+    background: #665b32;
+    border-color: #7b6d3a;
+    cursor: not-allowed;
+}
+
+.race-movement-panel #qualifying-feedback,
+.race-movement-panel #qualifying-status,
+.race-movement-panel #qualifying-roll-progress {
+    margin: 0;
+    font-size: .8rem;
+    line-height: 1.4;
+}
+
+
 
 .race-bottom-empty {
     min-height: 120px;
@@ -1932,7 +2075,7 @@ a {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .race-events-panel {
+    .race-sidebar .race-events-panel {
         grid-column: 1 / -1;
     }
 
@@ -1966,7 +2109,11 @@ a {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .race-events-panel {
+    .race-under-track-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .race-sidebar .race-events-panel {
         grid-column: auto;
     }
 
@@ -2023,17 +2170,12 @@ a {
     fill: #ffffff;
     stroke: none;
     font-family: Arial, Helvetica, sans-serif;
-    font-size: 8px;
+    font-size: 12px;
     font-weight: 800;
     pointer-events: none;
 }
 .race-track-svg .track-space-labels text {
-    fill: #000000;
-    stroke: none;
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 9px;
-    font-weight: 800;
-    pointer-events: none;
+    display: none;
 }
 
 .race-track-svg .track-start-finish text {
@@ -2050,4 +2192,362 @@ a {
     height: auto;
     min-height: 0;
     aspect-ratio: 2 / 1;
+}
+
+/* Keep this tab focused on its action button; other qualifying details belong elsewhere. */
+.race-movement-panel #qualifying-status,
+.race-movement-panel .qualifying-next-car,
+.race-movement-panel #qualifying-roll-progress,
+.race-movement-panel #qualifying-feedback,
+.race-movement-panel #qualifying-results,
+.race-movement-panel h3 {
+    display: none !important;
+}
+
+.race-movement-panel .qualifying-actions #qualifying-roll-button {
+    display: none !important;
+}
+
+.race-movement-panel .qualifying-movement-choices > p,
+.race-movement-panel .qualifying-movement-choices > h3 {
+    display: none !important;
+}
+
+.race-movement-panel .qualifying-confirm-movement-button {
+    width: 100%;
+    min-height: 42px;
+    border: 1px solid var(--accent-dark);
+    border-radius: 9px;
+    padding: 10px 12px;
+    color: #11140a;
+    background: var(--accent);
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.race-movement-panel .qualifying-confirm-movement-button:hover:not(:disabled) {
+    background: #f0ff91;
+}
+
+.race-movement-panel .qualifying-confirm-movement-button:disabled {
+    color: #827548;
+    background: #665b32;
+    border-color: #7b6d3a;
+    cursor: not-allowed;
+}
+
+
+/* Keep backend qualifying details available to the existing game logic,
+   but do not display them in the compact movement-controls tab. */
+.race-movement-panel #qualifying-status,
+.race-movement-panel .qualifying-next-car,
+.race-movement-panel #qualifying-roll-progress,
+.race-movement-panel .qualifying-results-heading,
+.race-movement-panel h3,
+.race-movement-panel #qualifying-results,
+.race-movement-panel .race-control-hint,
+.race-movement-panel .race-primary-button {
+    display: none !important;
+}
+
+
+/* Restore the three dice at the top of the movement tab, each with its own color. */
+.race-movement-panel .race-dice-row {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+    margin-bottom: 14px;
+}
+
+.race-movement-panel .race-die-card:nth-child(1) {
+    border-color: #27864a;
+    background: #10291b;
+}
+.race-movement-panel .race-die-card:nth-child(1) strong {
+    border-color: #36a85e;
+    background: #218344;
+    color: #f4fff7;
+}
+
+.race-movement-panel .race-die-card:nth-child(2) {
+    border-color: #c49b22;
+    background: #30270d;
+}
+.race-movement-panel .race-die-card:nth-child(2) strong {
+    border-color: #e7bd39;
+    background: #f2c94c;
+    color: #171b1e;
+}
+
+.race-movement-panel .race-die-card:nth-child(3) {
+    border-color: #a93636;
+    background: #301515;
+}
+.race-movement-panel .race-die-card:nth-child(3) strong {
+    border-color: #d84b4b;
+    background: #b83232;
+    color: #fff5f5;
+}
+
+/* Compact Current Turn panel. */
+.race-turn-summary-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 7px;
+}
+
+.race-turn-summary-panel .race-panel-heading {
+    margin: 0;
+    padding: 0;
+    gap: 2px;
+    line-height: 1;
+}
+
+.race-turn-summary-panel .race-panel-heading h2 {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.05;
+}
+
+.race-turn-car-name {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 6px;
+    border: 1px solid #39434b;
+    border-radius: 4px;
+    background: #171d22;
+}
+
+.race-turn-car-name .race-info-label {
+    font-size: 0.62rem;
+    line-height: 1;
+}
+
+.race-turn-car-name strong {
+    color: #f4f6f8;
+    font-size: 0.84rem;
+    line-height: 1.05;
+    overflow-wrap: anywhere;
+}
+
+.race-turn-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.race-turn-stat,
+.race-turn-stat-wide {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    min-height: 34px;
+    padding: 4px 5px;
+    border: 1px solid #39434b;
+    border-radius: 4px;
+    background: #20272d;
+}
+
+.race-turn-stat span {
+    color: #aeb8c0;
+    font-size: 0.58rem;
+    line-height: 1.1;
+    overflow-wrap: normal;
+}
+
+.race-turn-stat strong {
+    color: #ffffff;
+    font-size: 0.86rem;
+    font-weight: 800;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+
+.race-turn-stat-wide:last-child {
+    grid-column: 1 / -1;
+}
+/* Give Current Turn stat boxes more room on laptop-sized screens. */
+@media (min-width: 1101px) and (max-width: 1599px) {
+    .race-turn-stats {
+        gap: 10px;
+    }
+
+    .race-turn-stat,
+    .race-turn-stat-wide {
+        min-height: 58px;
+        padding: 0px 11px;
+        gap: 5px;
+    }
+
+    .race-turn-stat span {
+        font-size: 0.76rem;
+    }
+
+    .race-turn-stat strong {
+        font-size: 1.08rem;
+    }
+}
+/* Qualifying wheel-event history: grow with its entries rather than scrolling internally. */
+.race-event-log {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+}
+
+.race-event-log li {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 9px;
+    border: 1px solid #303e47;
+    border-radius: 7px;
+    background: #10171b;
+    font-size: .8rem;
+}
+
+.race-event-log .race-event-log-car {
+    color: #e8edf0;
+    font-weight: 750;
+}
+
+.race-event-log .race-event-log-details {
+    color: #aab7bf;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.race-event-log .race-event-log-empty {
+    color: #aab7bf;
+    background: transparent;
+    border-style: dashed;
+}
+
+/* Race name, progress and player color key on the track panel. */
+.race-track-panel {
+    position: relative;
+}
+
+.race-track-status {
+    position: absolute;
+    z-index: 5;
+    top: 10px;
+    right: 28px;
+    left: 28px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    pointer-events: none;
+}
+
+.race-track-status strong {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    border: 1px solid rgb(255 255 255 / 15%);
+    border-radius: 7px;
+    background: rgb(13 18 21 / 88%);
+    color: #f3f2ec;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.race-track-player-legend {
+    position: absolute;
+    z-index: 5;
+    bottom: 10px;
+    left: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px 14px;
+    max-width: calc(100% - 56px);
+    pointer-events: none;
+}
+.race-track-condition {
+    position: absolute;
+    z-index: 5;
+    right: 28px;
+    bottom: 10px;
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px;
+    border: 1px solid rgb(255 255 255 / 15%);
+    border-radius: 7px;
+    background: rgb(13 18 21 / 88%);
+    color: #f3f2ec;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+}
+.race-track-player {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 23px;
+    padding: 2px 7px;
+    border: 1px solid rgb(255 255 255 / 12%);
+    border-radius: 6px;
+    background: rgb(13 18 21 / 88%);
+    color: #f3f2ec;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.race-track-player-color {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 10px;
+    border: 1px solid rgb(255 255 255 / 65%);
+    border-radius: 50%;
+}
+
+.race-track-player-empty {
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgb(13 18 21 / 88%);
+    color: #c3cbc9;
+    font-size: 11px;
+}
+
+@media (max-width: 900px) {
+    .race-track-status {
+        top: 7px;
+        right: 24px;
+        left: 24px;
+    }
+
+    .race-track-player-legend {
+        bottom: 7px;
+        left: 24px;
+    }
+    .race-track-condition {
+        right: 24px;
+        bottom: 7px;
+        font-size: 10px;
+    }
+
+    .race-track-status strong {
+        font-size: 10px;
+    }
+
+    .race-track-player {
+        font-size: 10px;
+    }
 }

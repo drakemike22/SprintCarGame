@@ -47,14 +47,24 @@ function makeSeason(overrides = {}) {
         players: makePlayers(2),
         cars,
         eventCount: 5,
+
+        // Keep existing tests predictable unless a test
+        // explicitly supplies its own random function.
+        random: () => 0.999999,
+
         ...overrides
     });
 }
 
-function startQualifyingSeason(playerCount = 2, eventCount = 5) {
+function startQualifyingSeason(
+    playerCount = 2,
+    eventCount = 5,
+    overrides = {}
+) {
     const season = makeSeason({
         players: makePlayers(playerCount),
-        eventCount
+        eventCount,
+        ...overrides
     });
 
     const playerIds = season.players.map((player) => player.id);
@@ -372,7 +382,44 @@ test("starting the first event creates a qualifying session for drafted cars", (
     assert.equal(event.phase, "qualifying");
     assert.equal(event.qualifyingSession.isComplete, false);
 });
+test("qualifying order is randomized independently of draft order", () => {
+    const season = makeSeason({
+        random: () => 0
+    });
 
+    season.draft.setOrder(["player-1", "player-2"]);
+
+    for (let pick = 1; pick <= 32; pick++) {
+        const playerId = season.draft.getPlayerForPick(pick);
+        const carId = season.cars[pick - 1].id;
+
+        season.selectCar(playerId, carId);
+    }
+
+    const draftOrder = season.draft.picks.map(
+        (pick) => pick.carId
+    );
+
+    const event = season.startFirstEvent();
+    const qualifyingOrder = event.qualifyingSession.carIds;
+
+    assert.equal(qualifyingOrder.length, draftOrder.length);
+
+    // Every drafted car must still appear exactly once.
+    assert.deepEqual(
+        [...qualifyingOrder].sort(),
+        [...draftOrder].sort()
+    );
+
+    // The controlled random value must produce a different order.
+    assert.notDeepEqual(qualifyingOrder, draftOrder);
+
+    // Randomizing qualifying must not change the actual draft.
+    assert.deepEqual(
+        season.draft.picks.map((pick) => pick.carId),
+        draftOrder
+    );
+});
 test("a three-player event qualifies only the 30 drafted cars", () => {
     const season = makeSeason({
         players: makePlayers(3)
@@ -558,7 +605,42 @@ function completeQualifying(season, event, distanceForCar) {
         season.recordQualifyingRoll(spaces);
     }
 }
+test("track condition starts Normal and one spin determines all four heats", () => {
+    let randomValue = 0.1;
 
+    const { season, event } = startQualifyingSeason(
+        2,
+        5,
+        { random: () => randomValue }
+    );
+
+    assert.equal(event.trackCondition, "Normal");
+
+    completeQualifying(season, event);
+    season.createHeatLineups();
+
+    assert.equal(event.trackCondition, "Dry");
+
+    // Creating or recording individual heats must not spin again.
+    for (let heatNumber = 1; heatNumber <= 4; heatNumber++) {
+        assert.equal(event.trackCondition, "Dry");
+    }
+});
+
+test("track condition spin produces Normal at exactly 20 percent", () => {
+    let randomValue = 0.2;
+
+    const { season, event } = startQualifyingSeason(
+        2,
+        5,
+        { random: () => randomValue }
+    );
+
+    completeQualifying(season, event);
+    season.createHeatLineups();
+
+    assert.equal(event.trackCondition, "Normal");
+});
 test("qualifying results are distributed across four heat lineups", () => {
     const { season, event } = startQualifyingSeason();
 
@@ -777,8 +859,12 @@ test("an out-for-event heat finisher cannot transfer directly or enter the B-mai
     assert.equal(bMainCarIds.includes(finishers[4].carId), false);
 });
 
-function prepareSeasonWithHeatResults() {
-    const { season, event } = startQualifyingSeason();
+function prepareSeasonWithHeatResults(overrides = {}) {
+    const { season, event } = startQualifyingSeason(
+        2,
+        5,
+        overrides
+    );
 
     completeQualifying(season, event);
     season.createHeatLineups();
@@ -797,7 +883,34 @@ function prepareSeasonWithHeatResults() {
 
     return { season, event };
 }
+test("B-main track condition also applies to the A-main", () => {
+    let randomValue = 0.1;
 
+    const { season, event } = prepareSeasonWithHeatResults({
+        random: () => randomValue
+    });
+
+    // The qualifying-to-heats spin produced Dry.
+    assert.equal(event.trackCondition, "Dry");
+
+    // The second spin occurs when the B-main lineup is created.
+    randomValue = 0.2;
+
+    season.createBMainLineup();
+
+    assert.equal(event.trackCondition, "Normal");
+
+    // Recording B-main results must not cause another spin.
+    season.recordBMainResults(
+        event.bMainLineup.entries.map((entry) => ({
+            carId: entry.carId,
+            statusAtFinish: "running"
+        }))
+    );
+
+    assert.equal(event.phase, "a-main");
+    assert.equal(event.trackCondition, "Normal");
+});
 test("the B-main results award up to four transfer spots", () => {
     const { season, event } = prepareSeasonWithHeatResults();
 
@@ -1331,6 +1444,8 @@ test("a completed event advances to the next event and preserves season history"
     );
 
     const firstStandings = season.recordEventStandings();
+    // Simulate the previous event ending with a Dry track.
+    season.currentEvent.trackCondition = "Dry";
     const firstEventPoints = firstStandings.reduce(
         (total, result) => total + result.points,
         0
@@ -1350,6 +1465,7 @@ test("a completed event advances to the next event and preserves season history"
     assert.equal(secondReady.allPlayersReady, true);
     assert.equal(secondReady.nextEvent.eventNumber, 2);
     assert.equal(secondReady.nextEvent.phase, "qualifying");
+    assert.equal(secondReady.nextEvent.trackCondition, "Normal");
     assert.equal(season.currentEventNumber, 2);
     assert.equal(season.readyPlayerIds.length, 0);
 

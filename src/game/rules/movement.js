@@ -49,6 +49,7 @@ function calculateMovement(car, movementDie, laneChangeDie) {
 
     return movement;
 }
+
 /*
  * Calculates how many lanes a car changes based on the
  * lane-change die.
@@ -86,6 +87,7 @@ function calculateLaneChange(laneChangeDie) {
 
     return 4;
 }
+
 module.exports = {
     calculateMovement,
     calculateLaneChange
