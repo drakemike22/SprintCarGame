@@ -17,6 +17,11 @@ const {
     startMovementTurn,
     chooseMovementTurnPosition
 } = require("../src/game/track/movement-turn");
+const {
+    startTurn,
+    chooseTurnPosition,
+    resolveWreckSpinner
+} = require("../src/game/rules/turn");
 
 function makeCar(carId, section, lane = 2, status = CAR_STATUSES.RUNNING) {
     return {
@@ -866,6 +871,22 @@ test("restarts a yellow-flag race with running cars single-file in lane 2", () =
     assert.equal(getCurrentRaceCar(race).carId, "leader");
 });
 
+test("moves an incident car backward when its restart slot would put it ahead of the leader", () => {
+    const race = createRaceState([
+        { ...makeCar("leader", 10), completedLaps: 1 },
+        { ...makeCar("incident", 15), completedLaps: 1 }
+    ]);
+
+    // The incident car is physically ahead, but the yellow sends it to the back.
+    stopRaceRoundForYellow(race, ["incident"]);
+    restartRaceAfterYellow(race);
+
+    assert.deepEqual(race.round.order, ["leader", "incident"]);
+    const incident = race.raceCars.find(car => car.carId === "incident");
+    assert.deepEqual(incident.position, { section: 9, lane: 2 });
+    assert.equal(incident.completedLaps, 1);
+});
+
 test("keeps cars out for the race or event off the restart lineup", () => {
     const race = createRaceState([
         makeCar("leader", 25),
@@ -1112,4 +1133,123 @@ test("preserves restart order when the lineup crosses section zero", () => {
         race.round.order,
         ["leader", "second", "third", "fourth"]
     );
+});
+
+
+test("applies backward wreck movement and its lap loss to the live race car", () => {
+    const race = createRaceState([
+        { ...makeCar("wreck-car", 1), completedLaps: 1 },
+        makeCar("other-car", 20)
+    ]);
+    const turn = {
+        status: "complete",
+        position: { section: 2, lane: 2 },
+        history: [
+            { section: 1, lane: 2 },
+            { section: 2, lane: 2 }
+        ],
+        raceCar: {
+            ...makeCar("wreck-car", 1),
+            position: { section: 29, lane: 2 },
+            completedLaps: 0
+        },
+        eventResolution: { status: "resolved", result: { type: "wreck" } },
+        wreckWheel: { status: "resolved", result: { consequence: "backward-3" } },
+        wreckResolution: { yellowFlag: false, followOnSpins: [] }
+    };
+
+    applyCompletedRaceTurn(race, "wreck-car", turn);
+
+    const updated = race.raceCars.find(car => car.carId === "wreck-car");
+    assert.deepEqual(updated.position, { section: 29, lane: 2 });
+    assert.equal(updated.completedLaps, 0);
+    assert.equal(updated.distance, 1);
+});
+
+
+test("yellow restart moves cars forward to their restart slots when space allows", () => {
+    const race = createRaceState([
+        { ...makeCar("leader", 0), completedLaps: 3 },
+        { ...makeCar("second", 0, 1), completedLaps: 2 },
+        { ...makeCar("third", 27), completedLaps: 1 },
+        { ...makeCar("fourth", 26), completedLaps: 1 }
+    ]);
+
+    stopRaceRoundForYellow(race);
+    restartRaceAfterYellow(race);
+
+    const byId = new Map(race.raceCars.map((car) => [car.carId, car]));
+    assert.deepEqual(byId.get("leader").position, { section: 0, lane: 2 });
+    assert.deepEqual(byId.get("second").position, { section: 29, lane: 2 });
+    assert.deepEqual(byId.get("third").position, { section: 28, lane: 2 });
+    assert.deepEqual(byId.get("fourth").position, { section: 27, lane: 2 });
+    assert.equal(byId.get("second").completedLaps, 2);
+    assert.equal(byId.get("third").completedLaps, 2);
+    assert.equal(byId.get("fourth").completedLaps, 2);
+});
+
+
+test("a three-lap race starting at counter 1 finishes at counter 4", () => {
+    const race = createRaceState([
+        { ...makeCar("leader", 29), completedLaps: 1 }
+    ], 4);
+
+    for (let crossing = 0; crossing < 3; crossing++) {
+        const car = race.raceCars[0];
+        car.position = { section: 29, lane: 2 };
+        const turn = {
+            status: "complete",
+            position: { section: 0, lane: 2 },
+            history: [
+                { section: 29, lane: 2 },
+                { section: 0, lane: 2 }
+            ],
+            eventResolution: { status: "resolved", result: { type: "none" } }
+        };
+        applyCompletedRaceTurn(race, "leader", turn);
+        if (crossing < 2) {
+            car.position = { section: 29, lane: 2 };
+        }
+    }
+
+    assert.equal(race.status, "completed");
+    assert.equal(race.raceCars[0].completedLaps, 4);
+});
+
+
+test("wreck-wheel backward movement starts from the completed movement path", () => {
+    const wreckCar = { ...makeCar("wreck-car", 29), completedLaps: 1 };
+    const race = createRaceState([
+        wreckCar,
+        makeCar("other-car", 15)
+    ], 4);
+    const liveCar = race.raceCars.find((car) => car.carId === "wreck-car");
+    const turnCar = { id: "wreck-car", autoMovement: 0, bonusMovement: 0 };
+
+    let turn = startTurn({
+        car: turnCar,
+        raceCar: liveCar,
+        currentPosition: liveCar.position,
+        occupiedPositions: [{ section: 15, lane: 2 }],
+        movementDie: 2,
+        laneChangeDie: 2,
+        eventDie: 2
+    });
+    while (turn.status === "waiting-for-choice") {
+        const nextPosition = turn.legalNextPositions.find(
+            (position) => position.lane === turn.position.lane
+        ) ?? turn.legalNextPositions[0];
+        turn = chooseTurnPosition(turn, nextPosition);
+    }
+
+    assert.deepEqual(turn.position, { section: 1, lane: 2 });
+    const resolved = resolveWreckSpinner(turn, 2, [{ section: 15, lane: 2 }]);
+    assert.deepEqual(resolved.raceCar.position, { section: 28, lane: 2 });
+    assert.equal(resolved.raceCar.completedLaps, 1);
+
+    applyCompletedRaceTurn(race, "wreck-car", resolved);
+    const updated = race.raceCars.find((car) => car.carId === "wreck-car");
+    assert.deepEqual(updated.position, { section: 28, lane: 2 });
+    assert.equal(updated.completedLaps, 1);
+    assert.equal(updated.distance, 2);
 });

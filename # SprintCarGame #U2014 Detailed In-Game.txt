@@ -1,0 +1,557 @@
+# SprintCarGame — Detailed In-Game Website Layout Specification
+
+## 1. Project Goal
+
+Build the in-game racing screen for SprintCarGame, a browser-based, online multiplayer dirt-track sprint car game for 2–4 human players.
+
+The interface should look and feel like a digital tabletop racing game. Players should be able to see the entire dirt oval, follow the race, understand the current game state, roll dice, move their own car step by step, respond to incidents, view standings, and communicate with other players.
+
+The target audience includes people who are not particularly technical. The interface must be easy to understand without requiring players to know how the game works internally.
+
+The game will eventually support private multiplayer rooms, persistent seasons, reconnection, and resuming a paused game.
+
+**Important:** This is the desired website layout, not a request to rebuild the racing rules engine. Reuse the existing SprintCarGame models, rules, race state, and test coverage. The website should display the actual game state and send player actions through the existing game logic.
+
+## 2. Overall Page Layout
+
+The primary in-game screen should fill the available browser window and use a dashboard-style layout.
+
+Ignore the specific colors, logos, branding, and top navigation bar shown in the visual reference. The important features are the arrangement, relative size, and behavior of the sections.
+
+The page has three main horizontal areas:
+
+1. **Main racing area:** The racetrack occupies most of the available width and the majority of the upper portion of the screen.
+2. **Right information sidebar:** A vertical column displays the current race, live standings, and recent events.
+3. **Bottom control area:** A horizontal row beneath the track displays the current player's car, dice results and movement controls, and the action log.
+
+The racetrack should be the visual centerpiece. Do not add a permanent "My Games" sidebar to the left of the track. The track should extend toward the left edge of the available content area instead of leaving space for a game-list panel.
+
+### Recommended desktop proportions
+
+Treat these proportions as a starting point, not rigid pixel dimensions:
+
+- Racetrack region: approximately 75–80% of the available content width.
+- Right information sidebar: approximately 20–25% of the available content width.
+- Bottom control region: aligned with the racetrack column, not extending underneath the right sidebar.
+- The racetrack should occupy approximately 70–75% of the usable page height above the bottom controls, with the remaining height used for controls.
+- The right sidebar should extend from the top of the main content area to near the bottom of the page.
+- Maintain consistent gaps between panels and modest internal padding.
+
+Use a responsive CSS Grid or a similarly robust layout system rather than manually positioning every element.
+
+On a typical desktop, the main content should resemble this structure:
+
++------------------------------------------------------+----------------------+
+|                                                      |                      |
+|                                                      |    CURRENT RACE      |
+|                                                      |                      |
+|                 LARGE DIRT OVAL                      +----------------------+
+|                                                      |                      |
+|            CARS, LANES, SECTION MARKERS              |    LIVE STANDINGS    |
+|                                                      |                      |
+|                                                      +----------------------+
+|                                                      |                      |
+|                                                      |    RECENT EVENTS     |
++------------------------------------------------------+----------------------+
+|                                                      |                      |
+| YOUR CAR          DICE & MOVEMENT      ACTION LOG     |   SIDEBAR CONTINUES  |
+|                                                      |                      |
++------------------------------------------------------+----------------------+
+
+The diagram is conceptual. The bottom control row belongs under the track column, while the right sidebar remains a separate vertical column.
+
+On smaller screens, adapt the layout so controls and information remain usable. The desktop view is the primary design target; a mobile layout can stack or collapse panels as necessary.
+
+## 3. Main Racetrack Panel
+
+The racetrack is the most important component on the page. It should be large enough that players can distinguish cars, lanes, positions, and nearby traffic without excessive zooming.
+
+The track should be presented from a top-down or slightly aerial perspective, resembling a real dirt oval viewed from above.
+
+### Track shape and infield
+
+Display one complete oval-shaped dirt track with:
+
+- Two straights.
+- Two turns.
+- Four concentric racing lanes.
+- A visible infield in the center.
+- A clearly defined inside and outside boundary.
+- Lane markings that separate the four lanes.
+- Section boundaries or markers around the oval.
+- Sprint car tokens placed directly on their corresponding track spaces.
+
+The infield may contain decorative racetrack scenery, such as a pit area, support vehicles, equipment, tire barriers, or other track details. These decorations should never obscure cars, lane boundaries, or important game information.
+
+The track should fill as much of its available panel as possible while retaining the complete oval shape. Avoid cropping either end of the oval.
+
+### Track model and actual game rules
+
+The existing game engine defines the track as 30 sections with four lanes per section, for a total of 120 logical spaces.
+
+- Sections are numbered 0 through 29.
+- Lanes are numbered 0 through 3 internally.
+- The track wraps from section 29 to section 0 at the start/finish line.
+- The front straight includes sections 25–29 and 0–3.
+- Turn 1 includes sections 4–9.
+- The back straight includes sections 10–18.
+- Turn 2 includes sections 19–24.
+
+The website must render the track from this actual logical model. Do not invent a different number of spaces to make the visual easier.
+
+The internal section and lane values are development data. The finished interface should use visually positioned spaces and readable section markers rather than exposing raw internal coordinates as the primary user experience.
+
+If section numbers are shown around the track, they should correspond to the actual track sections. Place each number near its appropriate section and ensure that numbers do not overlap the cars.
+
+### Track space positioning
+
+Create a consistent mapping between each logical position and a screen coordinate.
+
+For example, a track position such as section 12, lane 2 should always map to the correct visual space. The mapping should be deterministic and reusable.
+
+The UI should not independently calculate race progress or decide whether a car can move to another space. Those decisions belong to the game engine.
+
+The track renderer should receive the current race state and translate each car's logical position into a visual location.
+
+The layout should account for:
+
+- The oval's geometry.
+- The four lane paths.
+- The 30 sections.
+- The start/finish wraparound.
+- Car tokens occupying adjacent spaces.
+- Cars being temporarily removed from the track.
+- Cars returning for a later eligible race segment.
+- Yellow-flag restarts and relined cars.
+- Cars that have been knocked out and no longer physically occupy track spaces.
+
+When a car is out for a race or out for an event, it must not continue to be displayed as occupying a normal track space if the rules say it has been removed from the track. The interface may show its status in the standings or event log.
+
+### Sprint car tokens
+
+Each car should appear as a small top-down sprint car token, not merely as a generic dot.
+
+Each token should communicate the car's identity using some combination of:
+
+- Car number.
+- A distinct owner/player color indicator.
+- A recognizable sprint-car silhouette.
+- Optional miniature details when space permits.
+
+The car number must remain readable at the normal desktop zoom level.
+
+The user intends to customize the visual artwork for the 32 permanent roster cars later. Therefore, build the rendering system so the image or artwork associated with each car can be replaced without changing the racing logic.
+
+Use the existing permanent car definitions as the source of driver names, car numbers, and car IDs. Do not create a second independent roster inside the UI.
+
+Player ownership colors and car artwork should remain separate concepts. The player color should be communicated clearly without requiring the entire car image to be recolored.
+
+### Car selection and interaction
+
+When it is a player's turn, clearly identify their car.
+
+If the player can interact with the car, clicking or tapping it should select it or reveal relevant information. If another player's car is selected, the current player's permitted actions must not accidentally apply to that car.
+
+Only the player who owns the active car should be able to control its movement. Other players can observe the race and its progress.
+
+When the movement system requires a lane choice, visually highlight only the legal next spaces. These should be obvious and easy to select.
+
+The interface must not display an entire predicted route when the rules require players to choose one space at a time.
+
+After each choice, update the car's position and available next choices using the authoritative movement-turn state. If the car becomes blocked and loses the remaining movement, communicate that clearly.
+
+### Responsive track rendering
+
+The track must resize with its container while preserving the oval's proportions.
+
+Use SVG, canvas, or a suitable component-based rendering approach. Choose the approach that best fits the existing project architecture and the need to position cars precisely.
+
+Whichever approach is used, keep logical game positions separate from screen coordinates. Resizing the browser should not change a car's actual game position.
+
+## 4. Current Race Panel
+
+Place a compact current-race panel at the top of the right sidebar.
+
+This panel tells the player exactly what race segment is happening and the current state of the event.
+
+It should display:
+
+- The current race type, such as Qualifying, Heat 1, Heat 2, Heat 3, Heat 4, B Main, or A Main.
+- The current lap and the total number of laps when the segment uses laps.
+- The track condition.
+- The current leader.
+- A visual progress indicator for the current race segment, if appropriate.
+- Any important race-state indicator, such as a yellow flag, an active incident, or a paused race.
+
+The panel should update when the race advances from one segment to another.
+
+The game rules define different race lengths for heats, the B Main, and the A Main. The interface should obtain the correct segment information from the game state instead of hardcoding a single lap count for all race types.
+
+Qualifying is different from a standard lap-based race, so its progress display should reflect qualifying runs or the current qualifying attempt rather than incorrectly presenting it as a normal heat.
+
+When the game is waiting for another player, a movement choice, a spinner result, or all players to become ready, show the relevant waiting state.
+
+If the race is paused because a player disconnects or is not ready, make the reason clear.
+
+## 5. Live Standings Panel
+
+Directly below the current-race panel, display a live standings table.
+
+The table should be compact enough to fit in the right sidebar but readable enough to identify cars quickly.
+
+Recommended columns:
+
+1. Position.
+2. Car number.
+3. Driver name.
+4. Laps completed.
+5. Race progress or distance.
+
+The exact columns may change depending on the current race segment. For example, qualifying standings may emphasize qualifying distance, while season standings should emphasize accumulated points.
+
+Display all cars relevant to the current race, not just the cars owned by the current player.
+
+The full field contains 32 permanent cars, but the active event field depends on the season's draft and the number of players. The standings must use the actual event field rather than assume every race contains the same number of cars.
+
+### Standings behavior
+
+- Update standings after relevant game-state changes.
+- Highlight the player's own car or use a clear ownership marker.
+- Identify the leader.
+- Make it possible to distinguish cars with the same number of laps by their actual race progress.
+- Show eliminated cars with an appropriate status when needed.
+- Preserve the official result ordering from the rules engine.
+- Do not calculate the official running order independently in the browser.
+
+The table may have its own scrolling area if the field is too large to fit.
+
+When a car is out for the race or event, its status should remain available even though it is no longer occupying a track space.
+
+The current race standings and season championship standings are different views. Do not substitute season points for race position.
+
+## 6. Recent Events Panel
+
+Below the live standings, place a recent-events or race-activity panel.
+
+This is a chronological activity feed that helps players understand what has happened during the race.
+
+Possible entries include:
+
+- A player rolling the dice.
+- A car moving.
+- A car changing lanes.
+- A car receiving bonus movement.
+- A car waiting for a lane choice.
+- A movement being blocked.
+- A wreck or mechanical incident being resolved.
+- A car being removed from the race.
+- A yellow flag being called.
+- A restart taking place.
+- A race segment ending.
+- A player becoming disconnected or reconnecting.
+
+Each entry should include a concise description and, where useful, the associated car number or driver name.
+
+A small icon or visual indicator can help distinguish movement, dice, incidents, and status changes.
+
+Show the newest events in a predictable way, such as at the top of the list. If there are too many entries, allow the panel to scroll.
+
+The activity feed is informational. It should not become a second source of game rules or independently invent events. It should reflect events generated by the actual game engine.
+
+## 7. Bottom Control Area
+
+Directly beneath the racetrack, place a horizontal row containing three panels:
+
+1. Your Car.
+2. Dice Roll and Movement Controls.
+3. Action Log.
+
+These panels should align with the width of the racetrack column and should not extend under the right sidebar.
+
+The bottom control area should remain visible and easy to reach during a race. On shorter browser windows, the page may scroll, but important actions should not be hidden beneath decorative content.
+
+The three panels should have clear boundaries and consistent internal spacing.
+
+Suggested desktop proportions within this row:
+
+- Your Car: approximately 34% of the row.
+- Dice and Movement Controls: approximately 38%.
+- Action Log: approximately 28%.
+
+These proportions are flexible. The dice and movement panel needs enough room for three dice and its main action button.
+
+## 8. Your Car Panel
+
+The leftmost panel in the bottom row displays information about the current player's active car.
+
+It should contain:
+
+- A larger image of the car.
+- The driver's name.
+- The car number.
+- Automatic movement statistic.
+- Bonus movement statistic.
+- The owner's identity or color marker.
+- A clear indicator when the car is not eligible to move.
+
+Use the permanent car model as the source of the driver name, car number, and movement statistics.
+
+For example, the reference mockup uses Rico Abreu's number 24 car, with automatic movement 8 and bonus movement 4. This is an example of the information layout, not a requirement to hardcode Rico Abreu as the player's car.
+
+The car shown should change according to the current player's active car and the current race state.
+
+If the player has no eligible active car, display a helpful status message rather than stale car details or active movement controls.
+
+When the current player is observing another player's turn, the panel can still display their own car, but it must clearly indicate that they cannot currently move.
+
+## 9. Dice Roll and Movement Controls
+
+The center panel in the bottom row contains the dice, movement calculation, and primary action button.
+
+The game uses three six-sided dice:
+
+- Movement die.
+- Lane-change die.
+- Event die.
+
+Each die should be displayed as a distinct, easily readable visual object with its result visible.
+
+Label each die so the player does not need to remember which color or position represents which purpose.
+
+The interface should distinguish between dice that have not yet been rolled and dice that have already been rolled for the current turn.
+
+### Movement allowance
+
+Display the movement calculation in a clear summary.
+
+The existing game rules calculate movement from the car's automatic movement statistic plus the movement die. If the movement die matches the lane-change die, the car receives its bonus movement statistic as well.
+
+The displayed movement allowance should reflect the authoritative calculation from the game engine.
+
+Do not duplicate or reimplement this calculation in UI code.
+
+### Lane-change allowance
+
+The lane-change die determines how many lane changes the player may use, subject to the existing rules.
+
+Display the number of lane changes available in a readable way.
+
+The player may use fewer lane changes than allowed. Lane changes are part of movement and do not add extra track distance.
+
+The controls should communicate the remaining movement and legal choices as the car advances one section at a time.
+
+### Primary action button
+
+Provide one prominent action button whose label changes according to the actual turn state.
+
+Examples of possible labels include:
+
+- Roll Dice.
+- Choose Lane.
+- Continue Movement.
+- Resolve Spinner.
+- Waiting for Player.
+- Finish Turn.
+
+These are examples, not a requirement to display all buttons at once.
+
+The button must be enabled only when the current player is allowed to perform that action.
+
+Do not allow a player to roll dice repeatedly for the same turn, resolve an incident twice, or skip a required movement decision.
+
+### Step-by-step movement
+
+The game uses step-by-step movement rather than automatic movement along a complete predicted route.
+
+The intended flow is:
+
+1. The player rolls the three dice.
+2. The game engine calculates the movement allowance and any applicable bonus.
+3. The player chooses among legal next spaces whenever a choice is required.
+4. The car advances one section at a time.
+5. Remaining movement is updated after each step.
+6. Movement ends when the allowance is exhausted or the car cannot legally move.
+7. Any pending event is resolved at the correct point in the turn.
+8. The turn is completed and control passes according to the game rules.
+
+The UI must follow the existing turn state. If the game is waiting for a lane choice, it should not prematurely resolve the event or pass the turn.
+
+If no legal next space exists, clearly explain that the car is blocked and has lost its remaining movement.
+
+## 10. Action Log Panel
+
+The rightmost panel in the bottom control row is a focused log of the current player's recent actions and the details of their active turn.
+
+It is related to the Recent Events panel in the right sidebar, but it serves a different purpose.
+
+The Recent Events panel summarizes activity across the race. The Action Log focuses on the current turn and its immediate sequence of actions.
+
+It may show:
+
+- The three dice results.
+- The initial movement allowance.
+- Whether bonus movement was awarded.
+- Each completed movement step.
+- Lane choices.
+- Remaining movement.
+- Blocked movement.
+- A pending event or spinner.
+- The outcome of a resolved incident.
+- Why the turn is waiting or complete.
+
+Use short, readable messages instead of long blocks of technical text.
+
+Keep the newest information easy to find and allow scrolling if the log grows.
+
+The action log should be derived from actual turn actions and results, not reconstructed from guesses based on the current car position.
+
+## 11. Multiplayer and Turn Ownership
+
+Although the page is centered on the racetrack, it must support the multiplayer rules.
+
+Every player should be able to observe the same shared race state.
+
+Only the player who owns the active car can make decisions for that car. The other players should see movement, dice results, events, and standings update as the turn progresses.
+
+When the game is waiting for a different player, display who needs to act.
+
+When a player disconnects, the game should enter the appropriate waiting or paused state according to the existing multiplayer design.
+
+The interface should not imply that a disconnected player has completed an action or that a race can continue when the game rules require all players to be online and ready.
+
+Room creation, joining, player management, and initial game setup can live on separate screens. This specification primarily describes the active in-game race screen.
+
+## 12. Track Conditions and Race Incidents
+
+The current race panel and track should communicate relevant race conditions and incidents without overwhelming the main view.
+
+Examples include:
+
+- Normal or other supported track conditions.
+- Yellow-flag state.
+- A car that has been knocked out.
+- A car that has been sent to the back.
+- A restart in progress.
+- A pending mechanical spinner.
+- A pending wreck spinner.
+
+Use temporary indicators where appropriate and remove them when the state changes.
+
+Do not introduce new race effects or invent additional rules for the sake of a visual effect.
+
+The game engine remains responsible for determining incident outcomes, legal movement, eliminations, restarts, and eligibility for subsequent race segments.
+
+The UI should simply display the resulting state and request the player's next permitted action.
+
+## 13. Data and Component Architecture
+
+Build the interface as reusable components rather than one enormous page component.
+
+Possible component boundaries include:
+
+- `RacePage`: overall page layout and shared race state.
+- `TrackView`: oval track and track-space rendering.
+- `CarToken`: an individual car displayed on the track.
+- `CurrentRacePanel`: segment, lap, track condition, and leader.
+- `LiveStandingsPanel`: official current-race order.
+- `RecentEventsPanel`: race-wide activity feed.
+- `YourCarPanel`: selected player's car details.
+- `DiceMovementPanel`: dice, movement calculation, legal choices, and primary action.
+- `ActionLogPanel`: current-turn details.
+- `PlayerStatus`: ownership, online status, and readiness where appropriate.
+
+These are suggested responsibilities, not a requirement to create every file immediately. Follow the project's existing module structure and framework.
+
+The front end must use the actual existing game models and rules interfaces wherever possible.
+
+Do not create a second permanent car roster, a separate movement calculator, a separate running-order calculator, or an alternative incident-resolution system inside the UI.
+
+Keep game logic and visual rendering separate.
+
+The UI should submit an action to the appropriate game/service layer and then render the updated authoritative state.
+
+For online multiplayer, the eventual server must validate player ownership, turn order, legal movement choices, dice results, and all other authoritative game actions. Do not trust the browser to determine the official result.
+
+## 14. Responsive Behavior and Usability
+
+The desktop layout is the primary target, but the design should adapt to smaller browser windows and mobile devices.
+
+At narrower widths:
+
+- Reduce unnecessary padding and spacing.
+- Keep the entire track visible where practical.
+- Preserve car-number readability as much as possible.
+- Move the right sidebar panels below or into collapsible sections.
+- Stack the bottom control panels when they no longer fit side by side.
+- Keep the primary action button accessible.
+- Avoid horizontal overflow that makes controls difficult to use.
+- Ensure the interface works with mouse, touch, and keyboard where practical.
+
+If the track becomes too small to play accurately, offer a track-focused or expanded view rather than making every element microscopic.
+
+Use clear status text and obvious action states. Avoid relying only on color to communicate ownership, errors, or turn status.
+
+## 15. Visual and Interaction Priorities
+
+The final website should prioritize the following, in order:
+
+1. The full oval track and current car positions.
+2. Clear indication of whose turn it is.
+3. Obvious legal movement choices.
+4. Readable dice results and movement allowance.
+5. Accurate current-race standings.
+6. Easy-to-understand race and incident status.
+7. Recent race activity and current-turn history.
+8. Player identity, connection, and readiness information.
+9. Decorative details and visual polish.
+
+Decorative track scenery and car artwork should enhance the experience without interfering with gameplay.
+
+Avoid unnecessary permanent panels that take space away from the track.
+
+The racetrack is the centerpiece; the sidebar and bottom controls support it.
+
+## 16. Implementation Instructions for the Coding Assistant
+
+Before writing the UI:
+
+1. Inspect the current repository and identify the existing framework, server architecture, game models, rules modules, and test commands.
+2. Verify the current Git status and recent commits.
+3. Identify which parts of the racing engine are already implemented and tested.
+4. Determine how the current race state, turn state, car ownership, standings, and events can be exposed to the UI.
+5. Propose a small set of implementation milestones before making large changes.
+
+Do not assume that a framework, database, rendering library, or networking system has already been selected unless it is confirmed in the repository.
+
+Do not replace existing working game logic just to make the UI easier to build.
+
+Implement the page layout incrementally, starting with the main grid, track rendering, and placeholder-free integration with real game data. Then add the information sidebar, bottom controls, responsive behavior, and multiplayer updates.
+
+Use existing tests and add appropriate UI or integration tests where the project's architecture supports them.
+
+Keep the changes modular, explain the purpose of each milestone, and provide exact PowerShell commands when I need to run tests or inspect files.
+
+**Important working rule:** Inspect the real repository before editing. Distinguish what is confirmed, what is implemented, and what remains unresolved. Ask me before changing established racing rules or making important architectural assumptions.
+
+## 17. Definition of Done for the Initial Racing Screen
+
+The initial layout milestone is complete when:
+
+- The main racing page renders with the large track on the left and the information sidebar on the right.
+- There is no permanent My Games sidebar beside the track.
+- The bottom controls align under the track, not the entire page.
+- The track renders all 30 sections and four lanes using the existing logical track model.
+- Cars appear in the positions provided by the game state.
+- Car numbers and driver details come from the existing roster and race models.
+- The current race panel reflects the actual segment and status.
+- Standings come from the official race-progress and results logic.
+- Recent Events and Action Log display actual events and actions.
+- Dice and movement controls reflect the actual turn state.
+- Only legal player actions are enabled.
+- A lane choice highlights only legal next spaces.
+- Eliminated cars no longer occupy track spaces when the rules require them to be removed.
+- The layout resizes without corrupting logical positions.
+- Existing game-engine tests continue to pass.
+- The code is committed to Git at a known-good checkpoint.
+
+Build this as the foundation for the final polished multiplayer website, not as a static screenshot or disconnected prototype.

@@ -19,6 +19,7 @@ const {
     ROOM_CODE_LENGTH,
     MAX_PLAYERS_PER_ROOM
 } = require("../src/server/rooms");
+const { stopRaceRoundForYellow } = require("../src/game/rules/race-coordinator");
 
 function createTwoPlayerRoom() {
     const manager = new RoomManager();
@@ -702,6 +703,389 @@ function createQualifyingRoom() {
     return { manager, host, guest, code, snapshot };
 }
 
+function completeAllQualifyingRuns(context) {
+    const { manager, host, guest, code } = context;
+    let snapshot = manager.getRoom(code, host.playerId);
+
+    while (!snapshot.event.qualifying.isComplete) {
+        const nextCar = snapshot.event.qualifying.nextCar;
+        const ownerId = nextCar.playerName === "Host"
+            ? host.playerId
+            : guest.playerId;
+
+        snapshot = manager.startNextQualifyingRun(code, ownerId);
+        snapshot = manager.recordQualifyingRoll(code, ownerId, 5);
+        snapshot = manager.recordQualifyingRoll(code, ownerId, 5);
+        snapshot = manager.recordQualifyingRoll(code, ownerId, 5);
+    }
+
+    return snapshot;
+}
+function startReadyHeat1(context) {
+    const { manager, host, guest, code } = context;
+
+    completeAllQualifyingRuns(context);
+
+    manager.setHeatReady(code, host.playerId);
+
+    return manager.setHeatReady(code, guest.playerId);
+}
+test("qualifying completion opens shared Heat 1 preparation for every player", () => {
+    const context = createQualifyingRoom();
+    const snapshot = completeAllQualifyingRuns(context);
+
+    assert.equal(snapshot.event.phase, "heats");
+    assert.equal(snapshot.event.heatPreparation.active, true);
+    assert.equal(snapshot.event.heatPreparation.allPlayersReady, false);
+    assert.equal(snapshot.event.qualifying.standings.length, 32);
+    assert.deepEqual(
+        snapshot.event.heatPreparation.players.map((player) => player.ready),
+        [false, false]
+    );
+    assert.equal(snapshot.event.activeRace, null);
+    assert.ok(["Dry", "Normal"].includes(snapshot.event.trackCondition));
+});
+
+test("Heat 1 starts only after every player confirms readiness", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    const complete = completeAllQualifyingRuns(context);
+
+    const hostReady = manager.setHeatReady(code, host.playerId);
+    assert.equal(hostReady.event.heatPreparation.active, true);
+    assert.equal(hostReady.event.activeRace, null);
+    assert.equal(hostReady.event.heatPreparation.players[0].ready, true);
+    assert.equal(hostReady.event.heatPreparation.players[1].ready, false);
+
+    const guestReady = manager.setHeatReady(code, guest.playerId);
+    assert.equal(guestReady.event.heatPreparation.active, false);
+    assert.equal(guestReady.event.heatPreparation.allPlayersReady, true);
+    assert.equal(guestReady.event.activeRace.raceType, "heat");
+    assert.equal(guestReady.event.activeRace.heatNumber, 1);
+    assert.equal(guestReady.event.activeRace.lapsToComplete, 3);
+    assert.equal(guestReady.event.trackCondition, complete.event.trackCondition);
+
+    // The first car must be published as ready for its owner to start.
+    // Each browser receives an owner-relative isYours value.
+    const firstCar = guestReady.event.activeRace.nextCar;
+    const hostSnapshot = manager.getRoom(code, host.playerId);
+    const guestSnapshot = manager.getRoom(code, guest.playerId);
+    assert.ok(firstCar);
+    assert.equal(
+        hostSnapshot.event.activeRace.nextCar.isYours,
+        firstCar.playerName === "Host"
+    );
+    assert.equal(
+        guestSnapshot.event.activeRace.nextCar.isYours,
+        firstCar.playerName === "Guest"
+    );
+    assert.equal(hostSnapshot.event.activeRace.standings[0].completedLaps, 0);
+    assert.equal(guestSnapshot.event.activeRace.standings[0].completedLaps, 0);
+});
+
+test("Heat 1 waits for a ready player who disconnects and starts after they reconnect", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    completeAllQualifyingRuns(context);
+
+    manager.setHeatReady(code, host.playerId);
+
+    const room = manager.rooms.get(code);
+    const hostRecord = room.players.find((player) => player.id === host.playerId);
+    hostRecord.lastSeenAt = Date.now() - 10_001;
+
+    const guestReady = manager.setHeatReady(code, guest.playerId);
+
+    assert.equal(guestReady.event.heatPreparation.active, true);
+    assert.equal(guestReady.event.heatPreparation.allPlayersReady, false);
+    assert.equal(guestReady.event.activeRace, null);
+    assert.equal(guestReady.event.heatPreparation.players[0].online, false);
+    assert.equal(guestReady.event.heatPreparation.players[0].ready, true);
+    assert.equal(guestReady.event.heatPreparation.players[1].online, true);
+
+    // The host's next authenticated room poll marks them online again.
+    const hostReturned = manager.getRoom(code, host.playerId);
+
+    assert.equal(hostReturned.event.heatPreparation.active, false);
+    assert.equal(hostReturned.event.activeRace.raceType, "heat");
+    assert.equal(hostReturned.event.activeRace.heatNumber, 1);
+});
+
+test("Heat 1 readiness cannot be submitted before qualifying is complete", () => {
+    const { manager, host, code } = createQualifyingRoom();
+
+    expectRoomError(
+        () => manager.setHeatReady(code, host.playerId),
+        "HEAT_PREPARATION_NOT_ACTIVE"
+    );
+});
+test("active Heat 1 turn starts with server-generated dice for the current car owner", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const currentCarId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[currentCarId];
+
+    const otherPlayerId = ownerId === host.playerId
+        ? guest.playerId
+        : host.playerId;
+
+    // The other player cannot start someone else's turn.
+    expectRoomError(
+        () => manager.startActiveRaceTurn(code, otherPlayerId),
+        "NOT_YOUR_CAR"
+    );
+
+    assert.equal(raceRecord.currentTurn, null);
+
+    const waitingSnapshot = manager.getRoom(code, ownerId);
+    assert.ok(waitingSnapshot.event.activeRace.nextCar);
+    assert.equal(waitingSnapshot.event.activeRace.nextCar.isYours, true);
+    assert.equal(waitingSnapshot.event.activeRace.nextCar.carNumber,
+        room.season.cars.find((car) => car.id === currentCarId).number);
+    assert.ok(waitingSnapshot.event.activeRace.round);
+
+    const started = manager.startActiveRaceTurn(code, ownerId);
+    const turn = raceRecord.currentTurn;
+
+    assert.ok(turn);
+
+    for (const die of ["movement", "laneChange", "event"]) {
+        assert.equal(typeof turn.dice[die], "number");
+        assert.ok(turn.dice[die] >= 1 && turn.dice[die] <= 6);
+    }
+
+    assert.ok(started.event.activeRace.turn);
+    assert.equal(started.event.activeRace.turn.isYours, true);
+    const expectedCar = room.season.cars.find(
+        (car) => car.id === currentCarId
+    );
+
+    assert.equal(
+        started.event.activeRace.turn.carNumber,
+        expectedCar.number
+    );
+    assert.ok(Array.isArray(started.event.activeRace.turn.legalNextPositions));
+    assert.ok(Array.isArray(started.event.activeRace.turn.history));
+});
+
+test("active Heat 1 turn cannot be started twice", () => {
+    const context = createQualifyingRoom();
+    const { manager, code } = context;
+
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const currentCarId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[currentCarId];
+
+    manager.startActiveRaceTurn(code, ownerId);
+
+    expectRoomError(
+        () => manager.startActiveRaceTurn(code, ownerId),
+        "RACE_TURN_ALREADY_ACTIVE"
+    );
+});
+
+test("active race turn cannot start before Heat 1 begins", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, code } = context;
+
+    expectRoomError(
+        () => manager.startActiveRaceTurn(code, host.playerId),
+        "NO_ACTIVE_RACE"
+    );
+});
+
+test("active Heat 1 movement accepts legal positions only from the current car owner", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const currentCarId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[currentCarId];
+
+    const otherPlayerId = ownerId === host.playerId
+        ? guest.playerId
+        : host.playerId;
+
+    // Use predictable, non-matching dice for this movement test.
+    const dice = [6, 5, 1];
+    let diceIndex = 0;
+
+    t.mock.method(
+        crypto,
+        "randomInt",
+        () => dice[diceIndex++]
+    );
+
+    manager.startActiveRaceTurn(code, ownerId);
+
+    const turn = raceRecord.currentTurn;
+    const legalPosition = turn.legalNextPositions[0];
+
+    assert.ok(legalPosition);
+
+    const originalHistoryLength = turn.history.length;
+
+    // Another player cannot move the active car.
+    expectRoomError(
+        () => manager.chooseActiveRaceTurnPosition(
+            code,
+            otherPlayerId,
+            legalPosition
+        ),
+        "NOT_YOUR_CAR"
+    );
+
+    assert.equal(turn.history.length, originalHistoryLength);
+
+    // The actual car owner can select the legal position.
+    const updated = manager.chooseActiveRaceTurnPosition(
+        code,
+        ownerId,
+        legalPosition
+    );
+
+    assert.equal(
+        updated.event.activeRace.turn.history.length,
+        originalHistoryLength + 1
+    );
+
+    assert.deepEqual(
+        updated.event.activeRace.turn.position,
+        legalPosition
+    );
+});
+
+test("active race movement can be undone only by its owner", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const currentCarId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[currentCarId];
+    const otherPlayerId = ownerId === host.playerId
+        ? guest.playerId
+        : host.playerId;
+
+    const dice = [6, 5, 1];
+    let diceIndex = 0;
+
+    t.mock.method(
+        crypto,
+        "randomInt",
+        () => dice[diceIndex++]
+    );
+
+    manager.startActiveRaceTurn(code, ownerId);
+
+    const originalTurn = raceRecord.currentTurn;
+    const originalPosition = { ...originalTurn.position };
+    const originalMovementRemaining = originalTurn.movementRemaining;
+    const originalLaneChangesRemaining =
+        originalTurn.laneChangesRemaining;
+    const originalDice = { ...originalTurn.dice };
+    const legalPosition = originalTurn.legalNextPositions[0];
+
+    assert.ok(legalPosition);
+
+    manager.chooseActiveRaceTurnPosition(
+        code,
+        ownerId,
+        legalPosition
+    );
+
+    const movedTurn = raceRecord.currentTurn;
+    assert.equal(movedTurn.history.length, 2);
+    assert.deepEqual(movedTurn.position, legalPosition);
+
+    // Another player cannot undo the active car's movement.
+    expectRoomError(
+        () => manager.undoActiveRaceTurnPosition(
+            code,
+            otherPlayerId
+        ),
+        "NOT_YOUR_CAR"
+    );
+
+    assert.equal(raceRecord.currentTurn.history.length, 2);
+
+    const undone = manager.undoActiveRaceTurnPosition(code, ownerId);
+    const undoneTurn = undone.event.activeRace.turn;
+
+    assert.equal(undoneTurn.history.length, 1);
+    assert.deepEqual(undoneTurn.position, originalPosition);
+    assert.equal(undoneTurn.movementRemaining, originalMovementRemaining);
+    assert.equal(
+        undoneTurn.laneChangesRemaining,
+        originalLaneChangesRemaining
+    );
+    assert.deepEqual(undoneTurn.dice, originalDice);
+
+    // A second undo has no movement choice to reverse.
+    const historyAfterUndo = [ ...raceRecord.currentTurn.history ];
+
+    expectRoomError(
+        () => manager.undoActiveRaceTurnPosition(code, ownerId),
+        "INVALID_RACE_UNDO"
+    );
+
+    assert.deepEqual(raceRecord.currentTurn.history, historyAfterUndo);
+});
+
+test("active race movement rejects an illegal position without changing the turn", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const currentCarId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[currentCarId];
+
+    const dice = [6, 5, 1];
+    let diceIndex = 0;
+
+    t.mock.method(
+        crypto,
+        "randomInt",
+        () => dice[diceIndex++]
+    );
+
+    manager.startActiveRaceTurn(code, ownerId);
+
+    const originalHistory = [
+        ...raceRecord.currentTurn.history
+    ];
+
+    expectRoomError(
+        () => manager.chooseActiveRaceTurnPosition(
+            code,
+            ownerId,
+            { section: 99, lane: 99 }
+        ),
+        "INVALID_RACE_MOVE"
+    );
+
+    assert.deepEqual(
+        raceRecord.currentTurn.history,
+        originalHistory
+    );
+});
+
 test("qualifying only allows the next car owner to start a run", () => {
     const { manager, host, guest, code, snapshot } = createQualifyingRoom();
     const nextCar = snapshot.event.qualifying.nextCar;
@@ -1010,6 +1394,203 @@ test("qualifying mechanical failure records movement before ending the run", (t)
 });
 
 
+test("active race route previews do not mutate the turn until the complete route is confirmed", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const carId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[carId];
+    const otherPlayerId = ownerId === host.playerId ? guest.playerId : host.playerId;
+    const dice = [6, 5, 1];
+    let diceIndex = 0;
+    t.mock.method(crypto, "randomInt", () => dice[diceIndex++]);
+
+    manager.startActiveRaceTurn(code, ownerId);
+    const originalTurn = raceRecord.currentTurn;
+    const originalHistory = structuredClone(originalTurn.history);
+    const plannedPositions = [];
+    let preview = null;
+    let steps = 0;
+
+    expectRoomError(
+        () => manager.previewActiveRaceTurnRoute(code, otherPlayerId, []),
+        "NOT_YOUR_CAR"
+    );
+
+    while ((!preview || preview.status === "waiting-for-choice") && steps < 30) {
+        const legalPositions = preview?.legalNextPositions ?? originalTurn.legalNextPositions;
+        const nextPosition = legalPositions[0];
+        assert.ok(nextPosition);
+        plannedPositions.push(nextPosition);
+        preview = manager.previewActiveRaceTurnRoute(code, ownerId, plannedPositions);
+        steps += 1;
+    }
+
+    assert.ok(steps < 30);
+    assert.ok(["complete", "stuck"].includes(preview.status));
+    assert.deepEqual(raceRecord.currentTurn.history, originalHistory);
+    assert.deepEqual(raceRecord.currentTurn.position, originalTurn.position);
+
+    expectRoomError(
+        () => manager.confirmActiveRaceTurnRoute(code, otherPlayerId, plannedPositions),
+        "NOT_YOUR_CAR"
+    );
+    const confirmed = manager.confirmActiveRaceTurnRoute(code, ownerId, plannedPositions);
+    assert.equal(confirmed.event.activeRace.turn.status, preview.status);
+    assert.equal(confirmed.event.activeRace.turn.history.length, plannedPositions.length + 1);
+    assert.notDeepEqual(raceRecord.currentTurn.history, originalHistory);
+});
+
+test("completed active race turns advance the current turn round", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const firstCarId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[firstCarId];
+    const dice = [6, 5, 1];
+    let diceIndex = 0;
+    t.mock.method(crypto, "randomInt", () => dice[diceIndex++]);
+
+    manager.startActiveRaceTurn(code, ownerId);
+    let turn = raceRecord.currentTurn;
+    let steps = 0;
+    while (turn.status === "waiting-for-choice" && steps < 30) {
+        const nextPosition = turn.legalNextPositions[0];
+        assert.ok(nextPosition);
+        manager.chooseActiveRaceTurnPosition(code, ownerId, nextPosition);
+        turn = raceRecord.currentTurn;
+        steps += 1;
+    }
+
+    assert.ok(steps < 30);
+    assert.ok(["complete", "stuck"].includes(turn.status));
+    const previousRoundIndex = raceRecord.state.round.currentIndex;
+
+    expectRoomError(
+        () => manager.applyActiveRaceTurn(code, ownerId === host.playerId ? guest.playerId : host.playerId),
+        "NOT_YOUR_CAR"
+    );
+    const applied = manager.applyActiveRaceTurn(code, ownerId);
+
+    assert.equal(raceRecord.currentTurn, null);
+    assert.equal(raceRecord.state.round.currentIndex, previousRoundIndex + 1);
+    assert.ok(applied.event.activeRace.nextCar);
+    assert.notEqual(applied.event.activeRace.nextCar.carNumber,
+        room.season.cars.find((car) => car.id === firstCarId).number);
+});
+
+test("active race mechanical incidents resolve, acknowledge, and allow turn completion", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const carId = raceRecord.state.round.order[0];
+    const ownerId = room.season.carOwners[carId];
+    const otherPlayerId = ownerId === host.playerId ? guest.playerId : host.playerId;
+    const dice = [1, 1, 1, 4];
+    let diceIndex = 0;
+    t.mock.method(crypto, "randomInt", () => dice[diceIndex++]);
+
+    manager.startActiveRaceTurn(code, ownerId);
+    let turn = raceRecord.currentTurn;
+    let steps = 0;
+    while (turn.status === "waiting-for-choice" && steps < 30) {
+        const nextPosition = turn.legalNextPositions[0];
+        assert.ok(nextPosition);
+        manager.chooseActiveRaceTurnPosition(code, ownerId, nextPosition);
+        turn = raceRecord.currentTurn;
+        steps += 1;
+    }
+    assert.ok(["complete", "stuck"].includes(turn.status));
+    assert.equal(turn.mechanicalWheel.status, "awaiting-spin");
+
+    expectRoomError(
+        () => manager.resolveActiveRaceMechanicalWheel(code, otherPlayerId),
+        "NOT_YOUR_CAR"
+    );
+    const resolved = manager.resolveActiveRaceMechanicalWheel(code, ownerId);
+    assert.equal(resolved.pendingIncident.wheelType, "mechanical");
+    assert.equal(raceRecord.currentTurn.mechanicalWheel.status, "resolved");
+    assert.equal(resolved.raceWheelEvents.length, 1);
+    assert.equal(resolved.raceWheelEvents[0].wheelType, "mechanical");
+    assert.equal(resolved.raceWheelEvents[0].carNumber,
+        room.season.cars.find((car) => car.id === carId).number);
+
+    expectRoomError(
+        () => manager.applyActiveRaceTurn(code, ownerId),
+        "INCIDENT_PENDING"
+    );
+    manager.acknowledgeIncident(code, ownerId);
+    const applied = manager.applyActiveRaceTurn(code, ownerId);
+    assert.equal(raceRecord.currentTurn, null);
+    assert.ok(applied.event.activeRace.nextCar);
+});
+
+test("active race wreck follow-on spins are assigned to cars behind in the current round", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, code } = context;
+    startReadyHeat1(context);
+
+    const room = manager.rooms.get(code);
+    const raceRecord = room.season.currentEvent.activeRace;
+    const currentIndex = raceRecord.state.round.currentIndex;
+    const carId = raceRecord.state.round.order[currentIndex];
+    const ownerId = room.season.carOwners[carId];
+    const nextCarId = raceRecord.state.round.order[currentIndex + 1];
+    const nextCar = raceRecord.state.raceCars.find(car => car.carId === nextCarId);
+    // Place the next car five spaces behind the expected route endpoint.
+    // Do this before movement planning so the route remains valid.
+    nextCar.completedLaps = 1;
+    nextCar.position = { section: 7, lane: 3 };
+    const dice = [2, 2, 2, 3, 4];
+    let diceIndex = 0;
+    t.mock.method(crypto, "randomInt", () => dice[diceIndex++]);
+
+    manager.startActiveRaceTurn(code, ownerId);
+    let turn = raceRecord.currentTurn;
+    let steps = 0;
+    while (turn.status === "waiting-for-choice" && steps < 30) {
+        const nextPosition = turn.legalNextPositions[0];
+        assert.ok(nextPosition);
+        manager.chooseActiveRaceTurnPosition(code, ownerId, nextPosition);
+        turn = raceRecord.currentTurn;
+        steps += 1;
+    }
+    assert.ok(["complete", "stuck"].includes(turn.status));
+    assert.equal(turn.wreckWheel.status, "awaiting-spin");
+
+    const resolved = manager.resolveActiveRaceWreckWheel(code, ownerId);
+    assert.equal(resolved.pendingIncident.wheelType, "wreck");
+    assert.deepEqual(resolved.pendingIncident.followOnSpins, [1]);
+    assert.equal(resolved.raceWheelEvents.length, 2);
+    assert.equal(resolved.raceWheelEvents[0].followOn, true);
+    assert.equal(resolved.raceWheelEvents[0].wheelType, "wreck");
+    assert.equal(resolved.raceWheelEvents[1].wheelType, "wreck");
+
+    const followOn = raceRecord.currentTurn.wreckResolution.followOnSpins;
+    assert.equal(followOn.length, 1);
+    assert.equal(followOn[0].carId, raceRecord.state.round.order[currentIndex + 1]);
+    assert.equal(followOn[0].slot, 4);
+
+    manager.acknowledgeIncident(code, ownerId);
+    const applied = manager.applyActiveRaceTurn(code, ownerId);
+    assert.equal(raceRecord.currentTurn, null);
+    assert.equal(raceRecord.state.status, "running");
+    assert.equal(
+        raceRecord.state.raceCars.find(car => car.carId === nextCarId).status,
+        "out-for-race"
+    );
+    assert.ok(applied.event.activeRace.nextCar);
+});
+
 test("active race snapshots expose car positions without internal IDs", () => {
     const { manager, host, code } = createQualifyingRoom();
     const room = manager.rooms.get(code);
@@ -1024,12 +1605,20 @@ test("active race snapshots expose car positions without internal IDs", () => {
         state: {
             status: "running",
             yellowFlag: false,
+            round: { order: [car.id], currentIndex: 0, completedCarIds: [], skippedCarIds: [], status: "in-progress", endedBy: null },
             raceCars: [{
                 carId: car.id,
-                position: { section: 29, lane: 2 },
-                completedLaps: 0,
+                position: { section: 29, lane: 1 },
+                completedLaps: 1,
                 distance: 0,
                 status: "running",
+                mechanicalDamage: "none"
+            }, {
+                carId: room.season.cars[1].id,
+                position: { section: 28, lane: 1 },
+                completedLaps: 1,
+                distance: 0,
+                status: "out-for-race",
                 mechanicalDamage: "none"
             }]
         }
@@ -1041,7 +1630,10 @@ test("active race snapshots expose car positions without internal IDs", () => {
     assert.equal(activeRace.raceType, "heat");
     assert.equal(activeRace.heatNumber, 1);
     assert.equal(activeRace.lapsToComplete, 3);
-    assert.equal(activeRace.cars.length, 1);
+    assert.equal(activeRace.cars.length, 2);
+    assert.equal(activeRace.standings.length, 2);
+    assert.equal(activeRace.standings[0].carNumber, car.number);
+    assert.equal(activeRace.standings[1].status, "out-for-race");
     assert.deepEqual(activeRace.cars[0], {
         carNumber: car.number,
         driverName: car.driverName,
@@ -1051,8 +1643,8 @@ test("active race snapshots expose car positions without internal IDs", () => {
         ownerColor: room.season.players.find(
             (player) => player.id === ownerId
         ).color,
-        position: { section: 29, lane: 2 },
-        completedLaps: 0,
+        position: { section: 29, lane: 1 },
+        completedLaps: 1,
         distance: 0,
         status: "running",
         mechanicalDamage: "none"
@@ -1066,4 +1658,24 @@ test("active race snapshots expose car positions without internal IDs", () => {
         JSON.stringify(activeRace).includes(ownerId),
         false
     );
+});
+
+
+test("room manager restarts a yellow-flag race and rejects a restart without yellow", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, code } = context;
+    startReadyHeat1(context);
+    const room = manager.rooms.get(code);
+    const race = room.season.currentEvent.activeRace.state;
+
+    expectRoomError(
+        () => manager.restartActiveRaceAfterYellow(code, host.playerId),
+        "NO_YELLOW_FLAG"
+    );
+
+    stopRaceRoundForYellow(race);
+    const restarted = manager.restartActiveRaceAfterYellow(code, host.playerId);
+    assert.equal(restarted.event.activeRace.status, "running");
+    assert.equal(restarted.event.activeRace.yellowFlag, false);
+    assert.ok(restarted.event.activeRace.nextCar);
 });

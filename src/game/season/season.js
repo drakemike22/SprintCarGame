@@ -780,8 +780,8 @@ class Season {
         }
 
         return {
-            section: 30 - startingPosition,
-            lane: 2
+            section: 30 - Math.ceil(startingPosition / 2),
+            lane: startingPosition % 2 === 1 ? 1 : 2
         };
     }
 
@@ -845,7 +845,14 @@ class Season {
             });
         });
 
-        const state = createRaceState(raceCars, lapsToComplete);
+        // Cars begin at 0 completed laps on the starting grid.
+        // The first 29 -> 0 crossing increments the counter to 1;
+        // a three-lap race finishes when it reaches 4.
+        raceCars.forEach((raceCar) => {
+            raceCar.completedLaps = 0;
+        });
+
+        const state = createRaceState(raceCars, lapsToComplete + 1);
 
         const raceRecord = {
             raceType,
@@ -1217,7 +1224,10 @@ class Season {
      * The official order must be supplied by the caller. We never
      * guess how retired or eliminated cars should be ordered.
      */
-    _createCompletedRaceFinishers(raceState, officialCarOrder) {
+    _createCompletedRaceFinishers(
+        raceState,
+        officialCarOrder = raceState?.officialFinishOrder
+    ) {
         if (!raceState || raceState.status !== "completed") {
             throw new Error(
                 "Race results can only be recorded after the race is completed."
@@ -1229,7 +1239,7 @@ class Season {
     /*
      * Record a heat directly from its completed race state.
      */
-    recordHeatRaceResults(heatNumber, raceState, officialCarOrder) {
+    recordHeatRaceResults(heatNumber, raceState, officialCarOrder = raceState?.officialFinishOrder) {
         const finishers = this._createCompletedRaceFinishers(
             raceState,
             officialCarOrder
@@ -1373,7 +1383,7 @@ class Season {
     /*
      * Record the B-main directly from its completed race state.
      */
-    recordBMainRaceResults(raceState, officialCarOrder) {
+    recordBMainRaceResults(raceState, officialCarOrder = raceState?.officialFinishOrder) {
         const finishers = this._createCompletedRaceFinishers(
             raceState,
             officialCarOrder
@@ -1513,7 +1523,7 @@ class Season {
     /*
      * Record the A-main directly from its completed race state.
      */
-    recordAMainRaceResults(raceState, officialCarOrder) {
+    recordAMainRaceResults(raceState, officialCarOrder = raceState?.officialFinishOrder) {
         const finishers = this._createCompletedRaceFinishers(
             raceState,
             officialCarOrder

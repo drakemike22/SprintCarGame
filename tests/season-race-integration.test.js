@@ -181,7 +181,9 @@ test("season integration rejects an official order that omits a race car", () =>
 test("starting a heat creates a three-lap race with the correct grid", () => {
     const cars = [
         { id: "car-a", autoMovement: 4, bonusMovement: 1 },
-        { id: "car-b", autoMovement: 5, bonusMovement: 2 }
+        { id: "car-b", autoMovement: 5, bonusMovement: 2 },
+        { id: "car-c", autoMovement: 6, bonusMovement: 2 },
+        { id: "car-d", autoMovement: 7, bonusMovement: 3 }
     ];
 
     const season = makeSeasonWithEvent({
@@ -191,7 +193,9 @@ test("starting a heat creates a three-lap race with the correct grid", () => {
                 heatNumber: 1,
                 entries: [
                     { carId: "car-a", startingPosition: 1 },
-                    { carId: "car-b", startingPosition: 2 }
+                    { carId: "car-b", startingPosition: 2 },
+                    { carId: "car-c", startingPosition: 3 },
+                    { carId: "car-d", startingPosition: 4 }
                 ]
             },
             { heatNumber: 2, entries: [] },
@@ -210,16 +214,20 @@ test("starting a heat creates a three-lap race with the correct grid", () => {
 
     const race = season.startHeatRace(1);
 
-    assert.equal(race.lapsToComplete, 3);
+    assert.equal(race.lapsToComplete, 4);
     assert.equal(race.status, "running");
+    assert.equal(race.raceCars.every((raceCar) => raceCar.completedLaps === 0), true);
     assert.deepEqual(
         race.raceCars.map((car) => ({
             carId: car.carId,
-            position: car.position
+            position: car.position,
+            completedLaps: car.completedLaps
         })),
         [
-            { carId: "car-a", position: { section: 29, lane: 2 } },
-            { carId: "car-b", position: { section: 28, lane: 2 } }
+            { carId: "car-a", position: { section: 29, lane: 1 }, completedLaps: 0 },
+            { carId: "car-b", position: { section: 29, lane: 2 }, completedLaps: 0 },
+            { carId: "car-c", position: { section: 28, lane: 1 }, completedLaps: 0 },
+            { carId: "car-d", position: { section: 28, lane: 2 }, completedLaps: 0 }
         ]
     );
 
@@ -307,7 +315,7 @@ test("B-main and A-main start with their configured lap targets", () => {
 
     const bMain = bMainSeason.startBMainRace();
 
-    assert.equal(bMain.lapsToComplete, 3);
+    assert.equal(bMain.lapsToComplete, 4);
     assert.equal(bMainSeason.currentEvent.activeRace.raceType, "b-main");
 
     const aMainSeason = makeSeasonWithEvent({
@@ -324,7 +332,7 @@ test("B-main and A-main start with their configured lap targets", () => {
 
     const aMain = aMainSeason.startAMainRace();
 
-    assert.equal(aMain.lapsToComplete, 5);
+    assert.equal(aMain.lapsToComplete, 6);
     assert.equal(aMainSeason.currentEvent.activeRace.raceType, "a-main");
 });
 
@@ -780,9 +788,13 @@ test("season can restart an active race after a yellow flag", () => {
 
     assert.ok(runningCars.length > 0);
 
-    for (const raceCar of runningCars) {
+    const orderedRestartCars = race.round.order.map((carId) =>
+        race.raceCars.find((raceCar) => raceCar.carId === carId)
+    );
+    orderedRestartCars.forEach((raceCar, index) => {
         assert.equal(raceCar.position.lane, 2);
-    }
+        assert.equal(raceCar.position.section, (orderedRestartCars[0].position.section - index + 30) % 30);
+    });
 
     assert.equal(
         race.round.order.length,

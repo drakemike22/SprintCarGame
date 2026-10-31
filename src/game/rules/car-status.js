@@ -11,7 +11,8 @@
 const CAR_STATUSES = {
     RUNNING: "running",
     OUT_FOR_RACE: "out-for-race",
-    OUT_FOR_EVENT: "out-for-event"
+    OUT_FOR_EVENT: "out-for-event",
+    FINISHED: "finished"
 };
 
 function applyMechanicalOutcome(outcome) {

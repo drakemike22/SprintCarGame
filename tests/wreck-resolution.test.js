@@ -29,7 +29,7 @@ test("all ten wreck-wheel slots return their defined outcomes", () => {
         ["flip", "out-for-race", true, []],
         ["flip-hard", "out-for-event", true, []],
         ["flip-big", "out-for-event", true, [1, 2, 3]],
-        ["climb-wall", "go-to-back", true, [1]]
+        ["hit-wall-blown-tire", "go-to-back", true, [1]]
     ];
 
     expected.forEach(([type, consequence, yellowFlag, followOnSpins], index) => {

@@ -63,6 +63,9 @@ function createRaceState(raceCars, lapsToComplete = null) {
         raceCars: copiedRaceCars,
         round,
         lapsToComplete,
+        finishOrder: [],
+        dnfOrder: [],
+        pendingFinishCarIds: [],
         status: alreadyReachedTarget
             ? "completed"
             : round.status === ROUND_STATUS.COMPLETED
@@ -103,43 +106,57 @@ function getCurrentRaceCar(raceState) {
  * the race state becomes "round-complete" at the end of a round.
  *
  * With a lap target:
- * - A running car reaching the target ends the race.
- * - Otherwise, a completed round automatically starts a new round.
- * - A new round recalculates order from updated race positions.
+ * - Cars crossing the finish are pending until the current round ends.
+ * - Finishers are then recorded and removed from the track.
+ * - Remaining running cars continue in a newly calculated round.
+ * - The race ends only after every car has finished or been retired.
  */
 function advanceRaceAfterTurn(raceState) {
     const lapsToComplete = raceState.lapsToComplete;
 
-    if (lapsToComplete !== null && lapsToComplete !== undefined) {
-        const winnerReachedTarget = raceState.raceCars.some(
-            (raceCar) =>
-                raceCar.status === "running" &&
-                raceCar.completedLaps >= lapsToComplete
-        );
-
-        if (winnerReachedTarget) {
-            raceState.status = "completed";
-            return raceState;
-        }
+    // A wreck can retire a car that is still listed later in this round's
+    // fixed order (for example, a follow-on spin). Such cars are skipped,
+    // not offered another turn after being declared DNF.
+    while (raceState.round.status === ROUND_STATUS.IN_PROGRESS) {
+        const nextCarId = getCurrentTurnCarId(raceState.round);
+        const nextCar = raceState.raceCars.find((car) => car.carId === nextCarId);
+        if (nextCar?.status === CAR_STATUSES.RUNNING) break;
+        skipCurrentTurn(raceState.round, nextCarId);
     }
 
     if (raceState.round.status === ROUND_STATUS.COMPLETED) {
-        // Preserve the original behavior for callers without a lap target.
         if (lapsToComplete === null || lapsToComplete === undefined) {
             raceState.status = "round-complete";
             return raceState;
         }
 
-        // The race continues: calculate the next round from current positions.
-        raceState.round = createTurnRound(raceState.raceCars);
+        // Cars that crossed the finish during this round are officially
+        // recorded and removed from the track only after every car in the
+        // fixed round order has completed its turn.
+        recordPendingFinishers(raceState);
 
-        // If every car is out, there are no more turns to run.
-        raceState.status =
-            raceState.round.status === ROUND_STATUS.COMPLETED
-                ? "completed"
-                : "running";
+        const runningCars = raceState.raceCars.filter(
+            (raceCar) => raceCar.status === CAR_STATUSES.RUNNING
+        );
+
+        // Once no cars remain on track, append all wrecked/retired cars
+        // after the finishers. Their live standings label is DNF.
+        if (runningCars.length === 0) {
+            const knownDnfIds = raceState.dnfOrder ?? [];
+            const remainingDnfs = raceState.raceCars
+                .filter((raceCar) => raceCar.status !== CAR_STATUSES.FINISHED && !knownDnfIds.includes(raceCar.carId))
+                .map((raceCar) => raceCar.carId);
+            raceState.officialFinishOrder = [...raceState.finishOrder, ...knownDnfIds, ...remainingDnfs];
+            raceState.status = "completed";
+            return raceState;
+        }
+
+        raceState.round = createTurnRound(runningCars);
     }
 
+    raceState.status = raceState.round.status === ROUND_STATUS.COMPLETED
+        ? "completed"
+        : "running";
     return raceState;
 }
 
@@ -182,9 +199,24 @@ function skipRaceCarTurn(raceState, carId) {
 }
 
 
+function recordPendingFinishers(raceState) {
+    const pending = raceState.pendingFinishCarIds ?? [];
+    for (const carId of pending) {
+        const raceCar = raceState.raceCars.find((car) => car.carId === carId);
+        if (raceCar && raceCar.status === CAR_STATUSES.RUNNING) {
+            raceCar.status = CAR_STATUSES.FINISHED;
+            if (!raceState.finishOrder.includes(carId)) {
+                raceState.finishOrder.push(carId);
+            }
+        }
+    }
+    raceState.pendingFinishCarIds = [];
+}
+
 /*
  * Stops the current round immediately when a yellow flag occurs.
- * Incident resolution and restart positioning will be added later.
+ * Cars that already crossed the finish line in this round are recorded
+ * as finishers; all other running cars will restart after the caution.
  */
 
 function stopRaceRoundForYellow(raceState, carsToBack = []) {
@@ -198,10 +230,26 @@ function stopRaceRoundForYellow(raceState, carsToBack = []) {
     }
 
     endTurnRoundForYellow(raceState.round);
+    if (raceState.lapsToComplete !== null && raceState.lapsToComplete !== undefined) {
+        recordPendingFinishers(raceState);
+    }
 
     raceState.yellowFlag = true;
-    raceState.status = "yellow-flag";
     raceState.yellowFlagCarsToBack = [...new Set(carsToBack)];
+
+    const runningCars = raceState.raceCars.filter(
+        (raceCar) => raceCar.status === CAR_STATUSES.RUNNING
+    );
+    if (runningCars.length === 0 && raceState.lapsToComplete !== null && raceState.lapsToComplete !== undefined) {
+        const knownDnfIds = raceState.dnfOrder ?? [];
+        const remainingDnfs = raceState.raceCars
+            .filter((raceCar) => raceCar.status !== CAR_STATUSES.FINISHED && !knownDnfIds.includes(raceCar.carId))
+            .map((raceCar) => raceCar.carId);
+        raceState.officialFinishOrder = [...raceState.finishOrder, ...knownDnfIds, ...remainingDnfs];
+        raceState.status = "completed";
+    } else {
+        raceState.status = "yellow-flag";
+    }
 
     return raceState;
 }
@@ -212,9 +260,8 @@ function stopRaceRoundForYellow(raceState, carsToBack = []) {
  *
  * Running cars are sorted by their current race positions.
  * Incident-involved cars are moved to the back of that order.
- * The lineup is then placed single-file in lane 2, starting
- * with the leader at their current section and following cars
- * one section behind. Section numbering wraps from 0 to 29.
+ * The restart lineup is single-file in lane 2, with the leader
+ * at their current section and each following car one section behind.
  *
  * Cars that are out for the race or event remain off the lineup.
  */
@@ -247,18 +294,24 @@ function restartRaceAfterYellow(raceState) {
             raceCar => raceCar.carId === orderedCarIds[0]
         );
 
-        const leaderSection = leader.position.section;
+        // Work in absolute track progress so every car takes the shortest
+        // rule-based direction to its restart slot: forward when it is behind
+        // that slot, backward only when it is already ahead of the slot and
+        // moving forward would put it past the car directly in front.
+        let previousRestartProgress =
+            leader.completedLaps * 30 + leader.position.section;
 
-        // Place every running car in a unique lane-2 space behind the leader.
+        // Preserve the established single-file restart grid in lane 2.
         for (let i = 0; i < orderedCarIds.length; i++) {
             const raceCar = raceState.raceCars.find(
                 car => car.carId === orderedCarIds[i]
             );
-
-            raceCar.position = {
-                section: (leaderSection - i + 30) % 30,
-                lane: 2
-            };
+            const targetProgress = previousRestartProgress - (i === 0 ? 0 : 1);
+            const normalizedProgress = Math.max(0, targetProgress);
+            raceCar.completedLaps = Math.floor(normalizedProgress / 30);
+            const section = normalizedProgress % 30;
+            raceCar.position = { section, lane: 2 };
+            previousRestartProgress = normalizedProgress;
         }
     }
 
@@ -425,11 +478,19 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
     }
 
     // Preserve status and mechanical damage recorded by turn resolution.
+    const wreckMovedBackward =
+        turn.wreckWheel?.result?.consequence === "backward-3";
     const resolvedCar = turn.raceCar
         ? {
             ...currentCar,
             status: turn.raceCar.status,
-            mechanicalDamage: turn.raceCar.mechanicalDamage
+            mechanicalDamage: turn.raceCar.mechanicalDamage,
+            ...(wreckMovedBackward
+                ? {
+                    position: { ...turn.raceCar.position },
+                    completedLaps: turn.raceCar.completedLaps
+                }
+                : {})
         }
         : currentCar;
 
@@ -508,9 +569,56 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         };
     }
 
+    // Keep pre-resolution statuses so newly retired cars can be identified
+    // after the staged state is committed.
+    const previousStatuses = new Map(
+        raceState.raceCars.map((raceCar) => [raceCar.carId, raceCar.status])
+    );
+
     // All calculations succeeded. Now apply the staged changes to the race.
     for (let i = 0; i < stagedRaceCars.length; i++) {
         raceState.raceCars[i] = stagedRaceCars[i];
+    }
+
+    // Preserve earlier DNF groups in the order they happened. Cars newly
+    // retired by this same turn/incident are appended together, ordered by
+    // their positions in the fixed round lineup (not by the raceCars array).
+    // This keeps a later single-car DNF behind every earlier DNF, while cars
+    // collected by one wreck are ranked relative to one another as they were
+    // running when the round began.
+    raceState.dnfOrder ??= [];
+    const roundOrder = raceState.round?.order ?? [];
+    const roundIndex = new Map(roundOrder.map((id, index) => [id, index]));
+    const newlyRetiredIds = stagedRaceCars
+        .filter((stagedCar) => {
+            return previousStatuses.get(stagedCar.carId) === CAR_STATUSES.RUNNING &&
+                stagedCar.status !== CAR_STATUSES.RUNNING &&
+                stagedCar.status !== CAR_STATUSES.FINISHED &&
+                !raceState.dnfOrder.includes(stagedCar.carId);
+        })
+        .map((raceCar) => raceCar.carId)
+        .sort((a, b) =>
+            (roundIndex.get(a) ?? Number.MAX_SAFE_INTEGER) -
+            (roundIndex.get(b) ?? Number.MAX_SAFE_INTEGER)
+        );
+    // A later DNF takes the next available last-place position, which is
+    // ahead of DNFs recorded in earlier rounds. Keep cars retired by the
+    // same incident together in their original round order.
+    raceState.dnfOrder = [...newlyRetiredIds, ...raceState.dnfOrder];
+
+    // A car that reaches the target is a pending finisher until the
+    // current round is complete. It remains in the fixed round lineup
+    // so every other eligible car gets its turn in this round.
+    if (
+        raceState.lapsToComplete !== null &&
+        raceState.lapsToComplete !== undefined &&
+        updatedCar.status === CAR_STATUSES.RUNNING &&
+        updatedCar.completedLaps >= raceState.lapsToComplete
+    ) {
+        raceState.pendingFinishCarIds ??= [];
+        if (!raceState.pendingFinishCarIds.includes(carId)) {
+            raceState.pendingFinishCarIds.push(carId);
+        }
     }
 
     // A wreck that raises a yellow flag ends the current round

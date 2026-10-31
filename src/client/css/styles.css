@@ -1685,8 +1685,24 @@ a {
     font-variant-numeric: tabular-nums;
 }
 
+.race-qualifying-standings .race-standings-car-info {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
 .race-qualifying-standings .race-standings-car {
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.race-qualifying-standings .race-standings-owner {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: .7rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -2550,4 +2566,188 @@ a {
     .race-track-player {
         font-size: 10px;
     }
+}
+
+
+/* ---------- Heat 1 preparation dialog ---------- */
+
+#heat-preparation-dialog {
+    width: min(760px, calc(100% - 32px));
+    max-width: 760px;
+    max-height: min(88vh, 900px);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid rgb(233 255 97 / 42%);
+    border-radius: 16px;
+    background: #131719;
+    color: var(--text);
+    box-shadow: 0 24px 90px rgb(0 0 0 / 72%);
+}
+
+#heat-preparation-dialog::backdrop {
+    background: rgb(0 0 0 / 78%);
+    backdrop-filter: blur(5px);
+}
+
+.heat-preparation-content {
+    display: grid;
+    gap: 14px;
+    max-height: min(88vh, 900px);
+    padding: 28px;
+    overflow: auto;
+}
+
+.heat-preparation-content .eyebrow {
+    margin: 0;
+}
+
+.heat-preparation-content h2 {
+    margin: 0;
+    font-size: clamp(26px, 4vw, 38px);
+    line-height: 1.05;
+    text-transform: uppercase;
+}
+
+.heat-preparation-condition {
+    width: fit-content;
+    margin: 0;
+    padding: 7px 12px;
+    border: 1px solid rgb(233 255 97 / 45%);
+    border-radius: 7px;
+    color: var(--accent);
+    font-weight: 800;
+}
+
+.heat-preparation-instructions {
+    margin: 0;
+    color: var(--muted);
+}
+
+.heat-preparation-standings-wrap {
+    max-height: 38vh;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+}
+
+.heat-preparation-standings {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.heat-preparation-standings th,
+.heat-preparation-standings td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.heat-preparation-standings th {
+    position: sticky;
+    top: 0;
+    background: #202729;
+    color: var(--accent);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.heat-preparation-standings tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.heat-preparation-players {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.heat-preparation-player {
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.heat-preparation-player.is-ready {
+    border-color: rgb(233 255 97 / 45%);
+    color: var(--accent);
+}
+
+.heat-preparation-feedback {
+    min-height: 20px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+#heat-preparation-ready {
+    min-height: 48px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #10130b;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+#heat-preparation-ready:disabled {
+    opacity: 0.65;
+}
+
+/* Race incident dialog styling */
+#incident-dialog {
+    width: min(460px, calc(100% - 32px));
+    padding: 26px;
+    border: 2px solid #e9ff61;
+    border-radius: 16px;
+    background: #131719;
+    color: var(--text);
+    box-shadow: 0 24px 90px rgb(0 0 0 / 72%);
+}
+
+#incident-dialog::backdrop {
+    background: rgb(0 0 0 / 78%);
+    backdrop-filter: blur(5px);
+}
+
+#incident-acknowledge {
+    min-width: 104px;
+    padding: 11px 24px;
+    border: 1px solid #e9ff61;
+    border-radius: 999px;
+    background: #e9ff61;
+    color: #111713;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+#incident-acknowledge:hover:not(:disabled) {
+    background: #f4ff9a;
+    border-color: #f4ff9a;
+}
+
+#incident-acknowledge:disabled {
+    opacity: .6;
+    cursor: wait;
+}
+
+.race-event-yellow-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 3px 0;
+    color: #f0e64a;
+    font-size: .9em;
+}
+
+.race-event-yellow-flag svg {
+    width: 25px;
+    height: 18px;
+    flex: 0 0 auto;
 }

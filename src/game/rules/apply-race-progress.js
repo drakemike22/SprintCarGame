@@ -41,14 +41,22 @@ function applyRaceProgress(raceCar, turn) {
 
     const progress = measureRaceProgress(turn.history);
 
+    const wreckMovedBackward =
+        turn.wreckWheel?.result?.consequence === "backward-3";
+    const finalPosition = wreckMovedBackward
+        ? raceCar.position
+        : turn.position;
+
     return {
         ...raceCar,
         position: {
-            section: turn.position.section,
-            lane: turn.position.lane
+            section: finalPosition.section,
+            lane: finalPosition.lane
         },
         distance: raceCar.distance + progress.distance,
-        completedLaps: raceCar.completedLaps + progress.completedLaps
+        completedLaps: wreckMovedBackward
+            ? raceCar.completedLaps
+            : raceCar.completedLaps + progress.completedLaps
     };
 }
 

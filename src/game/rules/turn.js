@@ -29,6 +29,7 @@ const {
 const {
     resolveMechanicalWheel
 } = require("./mechanical-wheel");
+const { measureRaceProgress } = require("./race-progress");
 
 const {
     startMovementTurn,
@@ -267,8 +268,17 @@ function resolveWreckSpinner(turn, slot, occupiedPositions = []) {
     let updatedRaceCar = turn.raceCar;
 
     if (turn.raceCar) {
+        // Wreck-wheel movement happens after the car completes its normal
+        // route, so resolve backward movement from the route's final space,
+        // not from the position where the turn originally started.
+        const movementProgress = measureRaceProgress(turn.history);
+        const raceCarAtMovementEnd = {
+            ...turn.raceCar,
+            position: { ...turn.position },
+            completedLaps: turn.raceCar.completedLaps + movementProgress.completedLaps
+        };
         const resolution = resolveWreck({
-            raceCar: turn.raceCar,
+            raceCar: raceCarAtMovementEnd,
             slot,
             occupiedPositions
         });

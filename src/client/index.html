@@ -714,6 +714,35 @@
             <span>BUILT FOR THE LOVE OF RACING</span>
         </footer>
     </div>
+    <dialog id="heat-preparation-dialog" aria-labelledby="heat-preparation-title">
+        <div class="heat-preparation-content">
+            <p class="eyebrow">QUALIFYING COMPLETE</p>
+            <h2 id="heat-preparation-title">Heat 1 Lineup</h2>
+            <p class="heat-preparation-condition" id="heat-preparation-condition">
+                Track Condition: Normal
+            </p>
+            <p class="heat-preparation-instructions">
+                Review the qualifying positions below. Heat 1 will begin after every player is ready.
+            </p>
+            <div class="heat-preparation-standings-wrap">
+                <table class="heat-preparation-standings">
+                    <thead>
+                        <tr>
+                            <th>Pos.</th>
+                            <th>Car</th>
+                            <th>Driver</th>
+                            <th>Player</th>
+                        </tr>
+                    </thead>
+                    <tbody id="heat-preparation-standings"></tbody>
+                </table>
+            </div>
+            <div class="heat-preparation-players" id="heat-preparation-players"></div>
+            <p class="heat-preparation-feedback" id="heat-preparation-feedback" aria-live="polite"></p>
+            <button id="heat-preparation-ready" class="primary-button" type="button">Im Ready</button>
+        </div>
+    </dialog>
+
     <dialog id="incident-dialog" aria-labelledby="incident-title">
         <h2 id="incident-title">Race Incident</h2>
         <p id="incident-car"></p>

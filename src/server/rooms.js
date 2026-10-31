@@ -28,6 +28,13 @@ const {
     resolveMechanicalSpinner,
     resolveWreckSpinner
 } = require("../game/rules/turn");
+
+const {
+    getCurrentRaceCar
+} = require("../game/rules/race-coordinator");
+const { getTurnOrder } = require("../game/rules/race-order");
+const { resolveWreckWheel } = require("../game/rules/wreck-wheel");
+const { getEligibleFollowOnCars } = require("../game/rules/follow-on-spins");
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_CHARACTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -41,6 +48,10 @@ const MAX_SEASON_EVENTS = 20;
 const DEFAULT_SEASON_EVENTS = 5;
 
 const MAX_DRIVER_NAME_LENGTH = 20;
+
+// The browser checks in every two seconds. Ten seconds allows several missed
+// polls before a player is considered disconnected.
+const PLAYER_PRESENCE_TIMEOUT_MS = 10_000;
 
 class RoomError extends Error {
     constructor(code, message, statusCode = 400) {
@@ -128,12 +139,18 @@ class RoomManager {
                 {
                     id: playerId,
                     name,
-                    ready: false
+                    ready: false,
+                    lastSeenAt: Date.now()
                 }
             ],
             pendingIncident: null,
+            // Heat-one preparation is separate from lobby readiness.
+            heatPreparation: null,
             // Persistent room history so every player can see qualifying wheel events.
-            qualifyingWheelEvents: []
+            qualifyingWheelEvents: [],
+            // Wheel events for the currently active heat/main are separate
+            // from qualifying history and shared with every room player.
+            raceWheelEvents: []
 
         };
 
@@ -183,7 +200,8 @@ class RoomManager {
         room.players.push({
             id: playerId,
             name,
-            ready: false
+            ready: false,
+            lastSeenAt: Date.now()
         });
 
         return {
@@ -198,6 +216,10 @@ class RoomManager {
     getRoom(rawCode, playerId) {
         const room = this.requireRoom(rawCode);
         this.requirePlayer(room, playerId);
+
+        // A returning player may be the final missing online member. Recheck
+        // readiness after refreshing their presence so the heat can resume.
+        this._startHeatWhenEveryoneIsReadyAndOnline(room);
 
         return this.createRoomSnapshot(room, playerId);
     }
@@ -945,6 +967,706 @@ class RoomManager {
 
 
     /*
+     * Create heat lineups once qualifying is fully complete.
+     * Safe to call after any qualifying completion path.
+     */
+    _ensureHeatLineups(room) {
+        const event = room.season?.currentEvent;
+        const session = event?.qualifyingSession;
+
+        if (
+            event?.phase === "qualifying" &&
+            session?.isComplete &&
+            !event.heatLineups
+        ) {
+            room.season.createHeatLineups();
+            room.heatPreparation = {
+                readyPlayerIds: new Set(),
+                started: false
+            };
+        }
+    }
+
+    _isPlayerOnline(player, now = Date.now()) {
+        return Number.isFinite(player.lastSeenAt) &&
+            now - player.lastSeenAt <= PLAYER_PRESENCE_TIMEOUT_MS;
+    }
+
+    _areAllHeatPlayersReadyAndOnline(room) {
+        const preparation = room.heatPreparation;
+
+        return Boolean(preparation) && room.players.every((player) =>
+            preparation.readyPlayerIds.has(player.id) &&
+            this._isPlayerOnline(player)
+        );
+    }
+
+    _startHeatWhenEveryoneIsReadyAndOnline(room) {
+        const preparation = room.heatPreparation;
+
+        if (
+            !preparation ||
+            preparation.started ||
+            !this._areAllHeatPlayersReadyAndOnline(room)
+        ) {
+            return false;
+        }
+
+        try {
+            room.season.startHeatRace(1);
+            preparation.started = true;
+            return true;
+        } catch (error) {
+            throw new RoomError(
+                "HEAT_START_FAILED",
+                error.message,
+                409
+            );
+        }
+    }
+
+    /*
+     * Record a player's confirmation that they are ready for Heat 1.
+     * The server starts the heat only after every room member is ready
+     * and has checked in recently.
+     */
+    setHeatReady(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const event = room.season?.currentEvent;
+        const preparation = room.heatPreparation;
+
+        if (
+            room.status !== "started" ||
+            event?.phase !== "heats" ||
+            !event.qualifyingSession?.isComplete ||
+            !event.heatLineups ||
+            !preparation
+        ) {
+            throw new RoomError(
+                "HEAT_PREPARATION_NOT_ACTIVE",
+                "Heat 1 is not waiting for player readiness.",
+                409
+            );
+        }
+
+        if (preparation.started) {
+            throw new RoomError(
+                "HEAT_ALREADY_STARTED",
+                "Heat 1 has already started.",
+                409
+            );
+        }
+
+        preparation.readyPlayerIds.add(player.id);
+        this._startHeatWhenEveryoneIsReadyAndOnline(room);
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+    /*
+     * Start a movement turn for the active heat or main-race car.
+     *
+     * Dice are generated on the server. Only the owner of the
+     * current car may start its turn.
+     */
+    startActiveRaceTurn(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before race movement begins.",
+                409
+            );
+        }
+
+        if (room.pendingIncident) {
+            throw new RoomError(
+                "INCIDENT_PENDING",
+                "The current incident must be acknowledged first.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+        const raceRecord = event?.activeRace;
+
+        if (
+            !event ||
+            !["heats", "b-main", "a-main"].includes(event.phase) ||
+            !raceRecord?.state
+        ) {
+            throw new RoomError(
+                "NO_ACTIVE_RACE",
+                "There is no active heat or main race.",
+                409
+            );
+        }
+
+        if (raceRecord.state.status !== "running") {
+            throw new RoomError(
+                "RACE_NOT_RUNNING",
+                "The active race is not accepting turns.",
+                409
+            );
+        }
+
+        if (raceRecord.currentTurn !== null) {
+            throw new RoomError(
+                "RACE_TURN_ALREADY_ACTIVE",
+                "The current car already has an active turn.",
+                409
+            );
+        }
+
+        const raceCar = getCurrentRaceCar(raceRecord.state);
+
+        if (!raceCar) {
+            throw new RoomError(
+                "NO_CURRENT_RACE_CAR",
+                "There is no car waiting to take a turn.",
+                409
+            );
+        }
+
+        if (
+            room.season.carOwners[raceCar.carId] !== player.id
+        ) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the current car may start its turn.",
+                403
+            );
+        }
+
+        try {
+            room.season.startActiveRaceTurn({
+                movementDie: crypto.randomInt(1, 7),
+                laneChangeDie: crypto.randomInt(1, 7),
+                eventDie: crypto.randomInt(1, 7)
+            });
+        } catch (error) {
+            throw new RoomError(
+                "RACE_TURN_START_FAILED",
+                error.message,
+                409
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+    
+    /*
+     * Preview an active race route without mutating the authoritative turn.
+     * This mirrors qualifying: the owner can add/remove path steps until the
+     * route is complete, then confirm the full route atomically.
+     */
+    previewActiveRaceTurnRoute(rawCode, playerId, positions) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const event = room.season?.currentEvent;
+        const raceRecord = event?.activeRace;
+        const liveTurn = raceRecord?.currentTurn;
+
+        if (room.status !== "started" || !room.season || !event ||
+            !["heats", "b-main", "a-main"].includes(event.phase) || !raceRecord?.state) {
+            throw new RoomError("NO_ACTIVE_RACE", "Route previews are only available during an active heat or main race.", 409);
+        }
+        if (room.pendingIncident) {
+            throw new RoomError("INCIDENT_PENDING", "The current incident must be acknowledged first.", 409);
+        }
+        if (raceRecord.state.status !== "running" || !liveTurn || liveTurn.status !== "waiting-for-choice") {
+            throw new RoomError("NO_ACTIVE_RACE_TURN", "There is no active movement turn to preview.", 409);
+        }
+
+        const carId = liveTurn.raceCar?.carId;
+        if (!carId) {
+            throw new RoomError("RACE_TURN_CAR_MISSING", "The active turn has no associated race car.", 409);
+        }
+        if (room.season.carOwners[carId] !== player.id) {
+            throw new RoomError("NOT_YOUR_CAR", "Only the owner of the current car may preview its route.", 403);
+        }
+        if (!Array.isArray(positions)) {
+            throw new RoomError("INVALID_RACE_ROUTE", "The route must be an array of positions.", 400);
+        }
+
+        try {
+            let previewTurn = structuredClone(liveTurn);
+            for (const position of positions) {
+                previewTurn = chooseTurnPosition(previewTurn, position);
+            }
+            return {
+                status: previewTurn.status,
+                position: previewTurn.position,
+                history: previewTurn.history,
+                legalNextPositions: previewTurn.legalNextPositions,
+                movementRemaining: previewTurn.movementRemaining,
+                laneChangesRemaining: previewTurn.laneChangesRemaining
+            };
+        } catch (error) {
+            throw new RoomError("INVALID_RACE_ROUTE", error.message, 400);
+        }
+    }
+
+    /* Commit a complete active race route after validating it on a copy. */
+    confirmActiveRaceTurnRoute(rawCode, playerId, positions) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const event = room.season?.currentEvent;
+        const raceRecord = event?.activeRace;
+        const liveTurn = raceRecord?.currentTurn;
+
+        if (room.status !== "started" || !room.season || !event ||
+            !["heats", "b-main", "a-main"].includes(event.phase) || !raceRecord?.state) {
+            throw new RoomError("NO_ACTIVE_RACE", "Route confirmation is only available during an active heat or main race.", 409);
+        }
+        if (room.pendingIncident) {
+            throw new RoomError("INCIDENT_PENDING", "The current incident must be acknowledged first.", 409);
+        }
+        if (raceRecord.state.status !== "running" || !liveTurn || liveTurn.status !== "waiting-for-choice") {
+            throw new RoomError("NO_ACTIVE_RACE_TURN", "There is no active movement turn to confirm.", 409);
+        }
+
+        const carId = liveTurn.raceCar?.carId;
+        if (!carId) {
+            throw new RoomError("RACE_TURN_CAR_MISSING", "The active turn has no associated race car.", 409);
+        }
+        if (room.season.carOwners[carId] !== player.id) {
+            throw new RoomError("NOT_YOUR_CAR", "Only the owner of the current car may confirm its route.", 403);
+        }
+        if (!Array.isArray(positions)) {
+            throw new RoomError("INVALID_RACE_ROUTE", "The route must be an array of positions.", 400);
+        }
+
+        try {
+            let candidateTurn = structuredClone(liveTurn);
+            for (const position of positions) {
+                candidateTurn = chooseTurnPosition(candidateTurn, position);
+            }
+
+            const plan = candidateTurn.movementPlan;
+            if (!plan || (plan.status !== "complete" && plan.status !== "blocked")) {
+                throw new Error("The route must use all movement or end when blocked.");
+            }
+
+            const { validateMovementPlan } = require("../game/track/movement-planner");
+            const validation = validateMovementPlan(plan, plan.occupiedPositions);
+            if (!validation.valid) throw new Error(validation.reason);
+
+            raceRecord.currentTurn = candidateTurn;
+        } catch (error) {
+            throw new RoomError("INVALID_RACE_ROUTE", error.message, 400);
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Select one legal movement position for the active race car.
+     * Only the owner of the current car may make this choice.
+     */
+    chooseActiveRaceTurnPosition(rawCode, playerId, targetPosition) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before race movement.",
+                409
+            );
+        }
+
+        if (room.pendingIncident) {
+            throw new RoomError(
+                "INCIDENT_PENDING",
+                "The current incident must be acknowledged first.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+        const raceRecord = event?.activeRace;
+
+        if (
+            !event ||
+            !["heats", "b-main", "a-main"].includes(event.phase) ||
+            !raceRecord?.state
+        ) {
+            throw new RoomError(
+                "NO_ACTIVE_RACE",
+                "There is no active heat or main race.",
+                409
+            );
+        }
+
+        if (raceRecord.state.status !== "running") {
+            throw new RoomError(
+                "RACE_NOT_RUNNING",
+                "The active race is not accepting movement.",
+                409
+            );
+        }
+
+        const turn = raceRecord.currentTurn;
+
+        if (!turn) {
+            throw new RoomError(
+                "NO_ACTIVE_RACE_TURN",
+                "Start the current car's turn before choosing movement.",
+                409
+            );
+        }
+
+        const carId = turn.raceCar?.carId;
+
+        if (!carId) {
+            throw new RoomError(
+                "RACE_TURN_CAR_MISSING",
+                "The active turn has no associated race car.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[carId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the current car may choose its movement.",
+                403
+            );
+        }
+
+        try {
+            room.season.chooseActiveRaceTurnPosition(targetPosition);
+        } catch (error) {
+            throw new RoomError(
+                "INVALID_RACE_MOVE",
+                error.message,
+                400
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Undo the most recent movement choice for the active race car.
+     * Only the owner of the current car may undo its movement.
+     */
+    undoActiveRaceTurnPosition(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError(
+                "ROOM_NOT_STARTED",
+                "The room must be started before race movement can be undone.",
+                409
+            );
+        }
+
+        if (room.pendingIncident) {
+            throw new RoomError(
+                "INCIDENT_PENDING",
+                "The current incident must be acknowledged before movement can be undone.",
+                409
+            );
+        }
+
+        const event = room.season.currentEvent;
+        const raceRecord = event?.activeRace;
+
+        if (
+            !event ||
+            !["heats", "b-main", "a-main"].includes(event.phase) ||
+            !raceRecord?.state
+        ) {
+            throw new RoomError(
+                "NO_ACTIVE_RACE",
+                "There is no active heat or main race.",
+                409
+            );
+        }
+
+        if (raceRecord.state.status !== "running") {
+            throw new RoomError(
+                "RACE_NOT_RUNNING",
+                "The active race is not accepting movement changes.",
+                409
+            );
+        }
+
+        const turn = raceRecord.currentTurn;
+
+        if (!turn) {
+            throw new RoomError(
+                "NO_ACTIVE_RACE_TURN",
+                "There is no active race turn to undo.",
+                409
+            );
+        }
+
+        const carId = turn.raceCar?.carId;
+
+        if (!carId) {
+            throw new RoomError(
+                "RACE_TURN_CAR_MISSING",
+                "The active turn has no associated race car.",
+                409
+            );
+        }
+
+        if (room.season.carOwners[carId] !== player.id) {
+            throw new RoomError(
+                "NOT_YOUR_CAR",
+                "Only the owner of the current car may undo its movement.",
+                403
+            );
+        }
+
+        try {
+            room.season.undoActiveRaceTurnPosition();
+        } catch (error) {
+            throw new RoomError(
+                "INVALID_RACE_UNDO",
+                error.message,
+                400
+            );
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Resolve an active race turn's mechanical wheel on the server.
+     * The involved car owner must acknowledge the shared incident before
+     * the completed turn can be applied to the race.
+     */
+    resolveActiveRaceMechanicalWheel(rawCode, playerId) {
+        return this._resolveActiveRaceWheel(rawCode, playerId, "mechanical");
+    }
+
+    /* Resolve an active race turn's wreck wheel on the server. */
+    resolveActiveRaceWreckWheel(rawCode, playerId) {
+        return this._resolveActiveRaceWheel(rawCode, playerId, "wreck");
+    }
+
+    _resolveActiveRaceWheel(rawCode, playerId, wheelType) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError("ROOM_NOT_STARTED", "The room must be started before race incidents can be resolved.", 409);
+        }
+        if (room.pendingIncident) {
+            throw new RoomError("INCIDENT_PENDING", "The current incident must be acknowledged first.", 409);
+        }
+
+        const event = room.season.currentEvent;
+        const raceRecord = event?.activeRace;
+        const turn = raceRecord?.currentTurn;
+        if (!event || !["heats", "b-main", "a-main"].includes(event.phase) || !raceRecord?.state) {
+            throw new RoomError("NO_ACTIVE_RACE", "There is no active heat or main race.", 409);
+        }
+        if (raceRecord.state.status !== "running" || !turn) {
+            throw new RoomError("NO_ACTIVE_RACE_TURN", "There is no active race turn to resolve.", 409);
+        }
+
+        const carId = turn.raceCar?.carId;
+        if (!carId) {
+            throw new RoomError("RACE_TURN_CAR_MISSING", "The active turn has no associated race car.", 409);
+        }
+        if (room.season.carOwners[carId] !== player.id) {
+            throw new RoomError("NOT_YOUR_CAR", "Only the owner of the current car may resolve its wheel.", 403);
+        }
+
+        const slot = crypto.randomInt(1, 11);
+        try {
+            if (wheelType === "mechanical") {
+                room.season.resolveActiveRaceMechanicalSpinner(slot);
+            } else {
+                room.season.resolveActiveRaceWreckSpinner(slot);
+            }
+        } catch (error) {
+            throw new RoomError("RACE_WHEEL_RESOLUTION_FAILED", error.message, 400);
+        }
+
+        const resolvedTurn = raceRecord.currentTurn;
+        const outcome = wheelType === "mechanical"
+            ? resolvedTurn.mechanicalWheel?.result
+            : resolvedTurn.wreckWheel?.result;
+        const car = room.season.cars.find((item) => item.id === carId);
+
+        // The wreck rules describe follow-on cars by their place behind the
+        // original wreck. Resolve those positions against this round's fixed
+        // turn order and assign each follow-on spin on the server.
+        if (wheelType === "wreck") {
+            const currentIndex = raceRecord.state.round.currentIndex;
+            const order = raceRecord.state.round.order;
+            // resolveWreckSpinner already includes this turn's lap crossings
+            // in raceCar.completedLaps; use the route endpoint before any
+            // backward wreck punishment to measure the collection gap.
+            const wreckProgress =
+                (resolvedTurn.raceCar?.completedLaps ?? 0) * 30 +
+                resolvedTurn.position.section;
+            const eligibleFollowOns = getEligibleFollowOnCars({
+                order,
+                currentIndex,
+                followOnSpins: resolvedTurn.wreckResolution.followOnSpins ?? [],
+                raceCars: raceRecord.state.raceCars,
+                wreckProgress
+            });
+            const resolvedFollowOns = [];
+
+            for (const followOn of eligibleFollowOns) {
+                const slot = crypto.randomInt(1, 11);
+                const followOnOutcome = resolveWreckWheel(slot);
+                resolvedFollowOns.push({ carId: followOn.carId, slot });
+
+                const followOnDriver = room.season.cars.find(
+                    item => item.id === followOn.carId
+                );
+                const followOnOwnerId = room.season.carOwners[followOn.carId];
+                const followOnOwner = room.players.find(item => item.id === followOnOwnerId);
+                room.raceWheelEvents ??= [];
+                room.raceWheelEvents.push({
+                    id: crypto.randomUUID(),
+                    eventNumber: event.eventNumber,
+                    raceType: raceRecord.raceType,
+                    heatNumber: raceRecord.heatNumber ?? null,
+                    carNumber: followOnDriver?.number ?? String(followOn.carId),
+                    driverName: followOnDriver?.driverName ?? "Unknown driver",
+                    playerName: followOnOwner?.name ?? "Unknown player",
+                    wheelType: "wreck",
+                    outcome: followOnOutcome.type,
+                    consequence: followOnOutcome.consequence,
+                    createdAt: Date.now(),
+                    followOn: true
+                });
+            }
+            resolvedTurn.wreckResolution.followOnSpins = resolvedFollowOns;
+        }
+
+        room.pendingIncident = {
+            ownerPlayerId: player.id,
+            carId,
+            carNumber: car?.number ?? String(carId),
+            driverName: car?.driverName ?? "Unknown driver",
+            playerName: player.name,
+            wheelType,
+            slot,
+            outcome: outcome?.type ?? "unknown",
+            consequence: outcome?.consequence ?? "none",
+            yellowFlag: wheelType === "wreck" && Boolean(resolvedTurn.wreckResolution?.yellowFlag),
+            followOnSpins: wheelType === "wreck"
+                ? [...(outcome?.followOnSpins ?? [])]
+                : [],
+            raceTurn: true
+        };
+
+        room.raceWheelEvents ??= [];
+        room.raceWheelEvents.push({
+            id: crypto.randomUUID(),
+            eventNumber: event.eventNumber,
+            raceType: raceRecord.raceType,
+            heatNumber: raceRecord.heatNumber ?? null,
+            carNumber: car?.number ?? String(carId),
+            driverName: car?.driverName ?? "Unknown driver",
+            playerName: player.name,
+            wheelType,
+            outcome: outcome?.type ?? "unknown",
+            consequence: outcome?.consequence ?? "none",
+            yellowFlag: wheelType === "wreck"
+                ? Boolean(resolvedTurn.wreckResolution?.yellowFlag)
+                : (outcome?.consequence ?? "none") !== "none",
+            createdAt: Date.now()
+        });
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Apply a completed active race turn. The engine advances the current
+     * turn-round and starts the next round when appropriate.
+     */
+    applyActiveRaceTurn(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError("ROOM_NOT_STARTED", "The room must be started before a race turn can be completed.", 409);
+        }
+        if (room.pendingIncident) {
+            throw new RoomError("INCIDENT_PENDING", "Acknowledge the current incident before completing the turn.", 409);
+        }
+
+        const event = room.season.currentEvent;
+        const raceRecord = event?.activeRace;
+        const turn = raceRecord?.currentTurn;
+        if (!event || !["heats", "b-main", "a-main"].includes(event.phase) || !raceRecord?.state) {
+            throw new RoomError("NO_ACTIVE_RACE", "There is no active heat or main race.", 409);
+        }
+        if (!turn) {
+            throw new RoomError("NO_ACTIVE_RACE_TURN", "There is no active race turn to complete.", 409);
+        }
+
+        const carId = turn.raceCar?.carId;
+        if (!carId) {
+            throw new RoomError("RACE_TURN_CAR_MISSING", "The active turn has no associated race car.", 409);
+        }
+        if (room.season.carOwners[carId] !== player.id) {
+            throw new RoomError("NOT_YOUR_CAR", "Only the owner of the current car may complete its turn.", 403);
+        }
+        if (turn.status !== "complete" && turn.status !== "stuck") {
+            throw new RoomError("RACE_MOVEMENT_INCOMPLETE", "Finish choosing movement before completing the turn.", 409);
+        }
+        if (
+            turn.mechanicalWheel?.status === "awaiting-spin" ||
+            turn.wreckWheel?.status === "awaiting-spin"
+        ) {
+            throw new RoomError("RACE_WHEEL_PENDING", "Resolve the required wheel before completing the turn.", 409);
+        }
+
+        try {
+            room.season.applyActiveRaceTurn();
+        } catch (error) {
+            throw new RoomError("RACE_TURN_APPLY_FAILED", error.message, 409);
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
+     * Restart the active race after a yellow flag. This is a shared race
+     * operation, not a car movement action; the engine validates the state.
+     */
+    restartActiveRaceAfterYellow(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+
+        if (room.status !== "started" || !room.season) {
+            throw new RoomError("ROOM_NOT_STARTED", "The room must be started before a race can restart.", 409);
+        }
+        if (room.pendingIncident) {
+            throw new RoomError("INCIDENT_PENDING", "Acknowledge the current incident before restarting.", 409);
+        }
+
+        const raceRecord = room.season.currentEvent?.activeRace;
+        if (!raceRecord?.state || raceRecord.state.status !== "yellow-flag") {
+            throw new RoomError("NO_YELLOW_FLAG", "The active race is not waiting for a yellow-flag restart.", 409);
+        }
+
+        try {
+            room.season.restartActiveRaceAfterYellow();
+        } catch (error) {
+            throw new RoomError("RACE_RESTART_FAILED", error.message, 409);
+        }
+
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    /*
      * Record one movement-distance result for the active qualifying car.
      * The session automatically finishes a run after its third roll.
      */
@@ -1031,6 +1753,7 @@ class RoomManager {
             throw error;
         }
 
+        this._ensureHeatLineups(room);
         return this.createRoomSnapshot(room, player.id);
     }
     
@@ -1110,6 +1833,7 @@ class RoomManager {
                 wheelType: "mechanical",
                 outcome: outcome.type,
                 consequence: outcome.consequence,
+                yellowFlag: outcome.consequence !== "none",
                 createdAt: Date.now()
             });
         } catch (error) {
@@ -1197,6 +1921,7 @@ class RoomManager {
                 wheelType: "wreck",
                 outcome: outcome.type,
                 consequence: outcome.consequence,
+                yellowFlag: Boolean(outcome.yellowFlag),
                 createdAt: Date.now()
             });
         } catch (error) {
@@ -1320,6 +2045,7 @@ class RoomManager {
             );
         }
 
+        this._ensureHeatLineups(room);
         return this.createRoomSnapshot(room, player.id);
     }
 
@@ -1399,6 +2125,7 @@ class RoomManager {
             throw error;
         }
 
+        this._ensureHeatLineups(room);
         return this.createRoomSnapshot(room, player.id);
     }
     /*
@@ -1554,6 +2281,8 @@ class RoomManager {
             );
         }
 
+        // Any authenticated room request acts as a presence heartbeat.
+        player.lastSeenAt = Date.now();
         return player;
     }
 
@@ -1583,10 +2312,14 @@ class RoomManager {
                     (seasonPlayer) => seasonPlayer.id === player.id
                 )?.color ?? null,
                 ready: player.ready,
+                online: this._isPlayerOnline(player),
                 isHost: player.id === room.hostPlayerId,
                 isYou: player.id === viewerPlayerId
             })),
             qualifyingWheelEvents: (room.qualifyingWheelEvents ?? []).map(
+                (entry) => ({ ...entry })
+            ),
+            raceWheelEvents: (room.raceWheelEvents ?? []).map(
                 (entry) => ({ ...entry })
             ),
             pendingIncident: room.pendingIncident
@@ -1834,6 +2567,15 @@ class RoomManager {
 
             const activeRaceRecord = currentEvent.activeRace ?? null;
             const raceState = activeRaceRecord?.state ?? null;
+            const nextRaceCar = raceState?.round
+                ? getCurrentRaceCar(raceState)
+                : null;
+            const nextRaceCarOwnerId = nextRaceCar
+                ? season.carOwners[nextRaceCar.carId]
+                : null;
+            const nextRaceCarDetails = nextRaceCar
+                ? carsById.get(nextRaceCar.carId)
+                : null;
 
             const activeRace = raceState
                 ? {
@@ -1843,6 +2585,116 @@ class RoomManager {
                         activeRaceRecord.lapsToComplete ?? null,
                     status: raceState.status,
                     yellowFlag: raceState.yellowFlag,
+                    round: raceState.round
+                        ? {
+                            turnNumber: raceState.round.currentIndex + 1,
+                            totalTurns: raceState.round.order.length,
+                            status: raceState.round.status
+                        }
+                        : null,
+                    nextCar: nextRaceCar && !activeRaceRecord.currentTurn
+                        ? {
+                            carNumber: nextRaceCarDetails?.number ?? null,
+                            driverName: nextRaceCarDetails?.driverName ?? null,
+                            playerName: playerNames.get(nextRaceCarOwnerId) ?? null,
+                            isYours: nextRaceCarOwnerId === viewerPlayerId,
+                            position: nextRaceCar.position
+                                ? { ...nextRaceCar.position }
+                                : null
+                        }
+                        : null,
+                    turn: activeRaceRecord.currentTurn
+                        ? (() => {
+                            const turn = activeRaceRecord.currentTurn;
+                            const carId = turn.raceCar?.carId;
+                            const car = carsById.get(carId);
+                            const ownerId = season.carOwners[carId];
+
+                            return {
+                                carNumber: car?.number ?? null,
+                                driverName: car?.driverName ?? null,
+                                playerName: playerNames.get(ownerId) ?? null,
+                                isYours: ownerId === viewerPlayerId,
+
+                                status: turn.status,
+                                position: turn.position
+                                    ? { ...turn.position }
+                                    : null,
+
+                                dice: turn.dice
+                                    ? { ...turn.dice }
+                                    : null,
+
+                                movementRemaining: turn.movementRemaining,
+                                laneChangesRemaining: turn.laneChangesRemaining,
+
+                                legalNextPositions:
+                                    turn.legalNextPositions.map(position => ({
+                                        section: position.section,
+                                        lane: position.lane
+                                    })),
+
+                                history: turn.history.map(position => ({
+                                    section: position.section,
+                                    lane: position.lane
+                                })),
+
+                                eventResolution: turn.eventResolution
+                                    ? {
+                                        status: turn.eventResolution.status,
+                                        result: turn.eventResolution.result
+                                            ? {
+                                                type: turn.eventResolution.result.type
+                                            }
+                                            : null
+                                    }
+                                    : null,
+
+                                mechanicalWheel: turn.mechanicalWheel
+                                    ? { ...turn.mechanicalWheel }
+                                    : null,
+
+                                wreckWheel: turn.wreckWheel
+                                    ? { ...turn.wreckWheel }
+                                    : null
+                            };
+                        })()
+                        : null,
+                    // Standings keep finishers visible, show active cars in
+                    // the current round order, and place DNFs at the bottom.
+                    standings: (() => {
+                        const carsByIdForRace = new Map(
+                            raceState.raceCars.map((raceCar) => [raceCar.carId, raceCar])
+                        );
+                        const finishedIds = raceState.finishOrder ?? [];
+                        const runningIds = (
+                            raceState.round?.order ??
+                            getTurnOrder(raceState.raceCars).map((raceCar) => raceCar.carId)
+                        ).filter((carId) => carsByIdForRace.get(carId)?.status === "running");
+                        const loggedDnfIds = raceState.dnfOrder ?? [];
+                        const dnfIds = [
+                            ...loggedDnfIds,
+                            ...raceState.raceCars
+                                .filter((raceCar) => raceCar.status !== "running" && raceCar.status !== "finished" && !loggedDnfIds.includes(raceCar.carId))
+                                .map((raceCar) => raceCar.carId)
+                        ];
+                        return [...finishedIds, ...runningIds, ...dnfIds]
+                            .map((carId, index) => {
+                                const raceCar = carsByIdForRace.get(carId);
+                                const car = carsById.get(carId);
+                                const ownerId = season.carOwners[carId];
+                                return {
+                                    position: index + 1,
+                                    carNumber: car?.number ?? null,
+                                    driverName: car?.driverName ?? null,
+                                    playerName: playerNames.get(ownerId) ?? null,
+                                    completedLaps: raceCar.completedLaps,
+                                    distance: raceCar.distance,
+                                    status: raceCar.status,
+                                    trackPosition: { ...raceCar.position }
+                                };
+                            });
+                    })(),
                     cars: raceState.raceCars.map((raceCar) => {
                         const car = carsById.get(raceCar.carId);
                         const ownerId = season.carOwners[raceCar.carId];
@@ -1870,6 +2722,20 @@ class RoomManager {
                 phase: currentEvent.phase,
                 trackCondition: currentEvent.trackCondition,
                 activeRace,
+                heatPreparation: room.heatPreparation && !room.heatPreparation.started
+                    ? {
+                        active: true,
+                        allPlayersReady: this._areAllHeatPlayersReadyAndOnline(room),
+                        players: room.players.map((player) => ({
+                            name: player.name,
+                            isYou: player.id === viewerPlayerId,
+                            ready: room.heatPreparation.readyPlayerIds.has(player.id),
+                            online: this._isPlayerOnline(player)
+                        }))
+                    }
+                    : room.heatPreparation?.started
+                        ? { active: false, allPlayersReady: true, players: [] }
+                        : null,
                 qualifying: qualifyingSession ? {
                     isComplete: qualifyingSession.isComplete,
                     nextCar,

@@ -253,6 +253,136 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
+        
+        // POST /api/rooms/:code/race/turn/preview
+        // Validate a proposed movement path without changing the live turn.
+        const raceTurnPreviewMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/preview$/
+        );
+        if (method === "POST" && raceTurnPreviewMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+            const preview = roomManager.previewActiveRaceTurnRoute(
+                decodeRoomCode(raceTurnPreviewMatch[1]),
+                playerId,
+                body.positions
+            );
+            sendJson(response, 200, { preview });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/turn/confirm
+        // Commit the complete movement path atomically.
+        const raceTurnConfirmMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/confirm$/
+        );
+        if (method === "POST" && raceTurnConfirmMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+            const room = roomManager.confirmActiveRaceTurnRoute(
+                decodeRoomCode(raceTurnConfirmMatch[1]),
+                playerId,
+                body.positions
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/turn/position
+        // Select the next legal position for the active race car.
+        const raceTurnPositionMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/position$/
+        );
+
+        if (method === "POST" && raceTurnPositionMatch) {
+            const playerId = getPlayerCredential(request);
+            const body = await readJsonBody(request);
+
+            const room = roomManager.chooseActiveRaceTurnPosition(
+                decodeRoomCode(raceTurnPositionMatch[1]),
+                playerId,
+                body.targetPosition
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/turn/undo
+        // Undo the latest movement choice for the active race car.
+        const raceTurnUndoMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/undo$/
+        );
+
+        if (method === "POST" && raceTurnUndoMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.undoActiveRaceTurnPosition(
+                decodeRoomCode(raceTurnUndoMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+
+        // POST /api/rooms/:code/race/turn/apply
+        // Apply the completed movement and advance the race turn round.
+        const raceTurnApplyMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/apply$/
+        );
+        if (method === "POST" && raceTurnApplyMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.applyActiveRaceTurn(
+                decodeRoomCode(raceTurnApplyMatch[1]),
+                playerId
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/restart
+        // Re-form the two-wide lineup after a yellow flag.
+        const raceRestartMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/restart$/
+        );
+        if (method === "POST" && raceRestartMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.restartActiveRaceAfterYellow(
+                decodeRoomCode(raceRestartMatch[1]),
+                playerId
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/turn/mechanical-wheel
+        const raceMechanicalWheelMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/mechanical-wheel$/
+        );
+        if (method === "POST" && raceMechanicalWheelMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.resolveActiveRaceMechanicalWheel(
+                decodeRoomCode(raceMechanicalWheelMatch[1]),
+                playerId
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/turn/wreck-wheel
+        const raceWreckWheelMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/wreck-wheel$/
+        );
+        if (method === "POST" && raceWreckWheelMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.resolveActiveRaceWreckWheel(
+                decodeRoomCode(raceWreckWheelMatch[1]),
+                playerId
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
 
         // PUT /api/rooms/:code/ready — change this player's ready state.
         const readyMatch = pathname.match(
@@ -266,6 +396,39 @@ async function handleApiRequest(request, response, url, roomManager) {
                 decodeRoomCode(readyMatch[1]),
                 playerId,
                 body.ready
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/heats/ready — confirm readiness for Heat 1.
+        const heatReadyMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/heats\/ready$/
+        );
+
+        if (method === "POST" && heatReadyMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.setHeatReady(
+                decodeRoomCode(heatReadyMatch[1]),
+                playerId
+            );
+
+            sendJson(response, 200, { room });
+            return true;
+        }
+        // POST /api/rooms/:code/race/turn/start
+        // Start the current heat or main-race car's movement turn.
+        const raceTurnStartMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/turn\/start$/
+        );
+
+        if (method === "POST" && raceTurnStartMatch) {
+            const playerId = getPlayerCredential(request);
+
+            const room = roomManager.startActiveRaceTurn(
+                decodeRoomCode(raceTurnStartMatch[1]),
+                playerId
             );
 
             sendJson(response, 200, { room });

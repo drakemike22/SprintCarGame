@@ -68,7 +68,7 @@ const WRECK_OUTCOMES = {
         followOnSpins: [1, 2, 3]
     },
     10: {
-        type: "climb-wall",
+        type: "hit-wall-blown-tire",
         consequence: "go-to-back",
         yellowFlag: true,
         followOnSpins: [1]

@@ -9,6 +9,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 
 const { createServer } = require("../src/server/server");
 
@@ -742,5 +743,336 @@ test("qualifying HTTP API enforces ownership and advances qualifying runs", asyn
             JSON.stringify(earlyFinish.data.room).includes(guest.data.playerId),
             false
         );
+    });
+});
+
+test("Heat 1 turn-start HTTP API enforces ownership and supports yellow restart", async (t) => {
+    await withServer(async (baseUrl) => {
+        const host = await createRoom(baseUrl);
+        const guest = await joinRoom(baseUrl, host.data.room.code);
+        const roomCode = host.data.room.code;
+
+        const credentials = {
+            Host: host.data.playerId,
+            Guest: guest.data.playerId
+        };
+
+        async function post(path, playerId, body) {
+            const options = {
+                method: "POST",
+                headers: {
+                    "X-Player-Id": playerId
+                }
+            };
+
+            if (body !== undefined) {
+                options.headers["Content-Type"] = "application/json";
+                options.body = JSON.stringify(body);
+            }
+
+            const response = await fetch(
+                `${baseUrl}/api/rooms/${roomCode}/${path}`,
+                options
+            );
+
+            return {
+                response,
+                data: await readJson(response)
+            };
+        }
+
+        // Both players get ready and the host starts the season.
+        for (const player of [host, guest]) {
+            const ready = await fetch(
+                `${baseUrl}/api/rooms/${roomCode}/ready`,
+                {
+                    method: "PUT",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Player-Id": player.data.playerId
+                    },
+                    body: JSON.stringify({ ready: true })
+                }
+            );
+
+            assert.equal(ready.status, 200);
+        }
+
+        const start = await post("start", host.data.playerId);
+        assert.equal(start.response.status, 200);
+
+        // Resolve the draft order.
+        assert.equal(
+            (await post("draft/roll", host.data.playerId, {
+                roll: 2
+            })).response.status,
+            200
+        );
+
+        const secondRoll = await post(
+            "draft/roll",
+            guest.data.playerId,
+            { roll: 6 }
+        );
+
+        assert.equal(secondRoll.response.status, 200);
+
+        // Complete all 32 draft picks.
+        let room = secondRoll.data.room;
+
+        while (room.draft.nextPicker !== null) {
+            const pickerId = credentials[room.draft.nextPicker];
+
+            const pick = await post(
+                "draft/pick",
+                pickerId,
+                { carNumber: room.draft.availableCars[0].number }
+            );
+
+            assert.equal(pick.response.status, 200);
+            room = pick.data.room;
+        }
+
+        // Complete all qualifying runs.
+        while (!room.event.qualifying.isComplete) {
+            const nextCar = room.event.qualifying.nextCar;
+            const ownerId = credentials[nextCar.playerName];
+
+            const runStart = await post(
+                "qualifying/next",
+                ownerId
+            );
+
+            assert.equal(runStart.response.status, 200);
+
+            let roll;
+
+            for (let index = 0; index < 3; index += 1) {
+                roll = await post(
+                    "qualifying/roll",
+                    ownerId,
+                    { spaces: 5 }
+                );
+
+                assert.equal(roll.response.status, 200);
+            }
+
+            room = roll.data.room;
+        }
+
+        assert.equal(room.event.phase, "heats");
+        assert.equal(room.event.heatPreparation.active, true);
+
+        // Both players confirm readiness for Heat 1.
+        for (const player of [host, guest]) {
+            const ready = await post(
+                "heats/ready",
+                player.data.playerId
+            );
+
+            assert.equal(ready.response.status, 200);
+            room = ready.data.room;
+        }
+
+        assert.equal(room.event.activeRace.raceType, "heat");
+        assert.equal(room.event.activeRace.heatNumber, 1);
+
+        // Identify the owner of the first active race car.
+        const currentCar = room.event.activeRace.cars[0];
+        const ownerId = credentials[currentCar.playerName];
+
+        const otherPlayerId = ownerId === host.data.playerId
+            ? guest.data.playerId
+            : host.data.playerId;
+
+        // The wrong player must be rejected.
+        const rejected = await post(
+            "race/turn/start",
+            otherPlayerId
+        );
+
+        assert.equal(rejected.response.status, 403);
+        assert.equal(rejected.data.error.code, "NOT_YOUR_CAR");
+
+        // Force a triple-two wreck roll and a yellow-flag spin-out so this
+        // integration test exercises the full restart endpoint deterministically.
+        t.mock.method(crypto, "randomInt", (min, max) => max === 11 ? 5 : 2);
+
+        // The correct owner can start the turn.
+        const turnStart = await post(
+            "race/turn/start",
+            ownerId
+        );
+
+        assert.equal(turnStart.response.status, 200);
+
+        const turn = turnStart.data.room.event.activeRace.turn;
+
+        assert.ok(turn);
+        const originalPosition = { ...turn.position };
+
+        assert.equal(turn.isYours, true);
+        assert.equal(turn.carNumber, currentCar.carNumber);
+        assert.ok(Array.isArray(turn.legalNextPositions));
+        assert.ok(Array.isArray(turn.history));
+
+        for (const die of ["movement", "laneChange", "event"]) {
+            assert.equal(typeof turn.dice[die], "number");
+            assert.ok(turn.dice[die] >= 1 && turn.dice[die] <= 6);
+        }
+        
+        // Select one legal movement position.
+        const legalPosition = turn.legalNextPositions[0];
+
+        assert.ok(legalPosition);
+
+        // Another player cannot choose this car's movement.
+        const rejectedMove = await post(
+            "race/turn/position",
+            otherPlayerId,
+            { targetPosition: legalPosition }
+        );
+
+        assert.equal(rejectedMove.response.status, 403);
+        assert.equal(
+            rejectedMove.data.error.code,
+            "NOT_YOUR_CAR"
+        );
+
+        // The current car owner can choose the legal position.
+        const movement = await post(
+            "race/turn/position",
+            ownerId,
+            { targetPosition: legalPosition }
+        );
+
+        assert.equal(movement.response.status, 200);
+
+        assert.deepEqual(
+            movement.data.room.event.activeRace.turn.position,
+            legalPosition
+        );
+
+        // Another player cannot undo the active car's movement.
+        const rejectedUndo = await post(
+            "race/turn/undo",
+            otherPlayerId
+        );
+
+        assert.equal(rejectedUndo.response.status, 403);
+        assert.equal(rejectedUndo.data.error.code, "NOT_YOUR_CAR");
+
+        // The current car owner can undo the latest movement choice.
+        const undo = await post("race/turn/undo", ownerId);
+
+        assert.equal(undo.response.status, 200);
+        assert.deepEqual(
+            undo.data.room.event.activeRace.turn.position,
+            originalPosition
+        );
+        assert.equal(
+            undo.data.room.event.activeRace.turn.history.length,
+            1
+        );
+
+        // A second undo is rejected because no choice remains to reverse.
+        const invalidUndo = await post("race/turn/undo", ownerId);
+
+        assert.equal(invalidUndo.response.status, 400);
+        assert.equal(invalidUndo.data.error.code, "INVALID_RACE_UNDO");
+
+        // A second start request must be rejected.
+        const duplicate = await post(
+            "race/turn/start",
+            ownerId
+        );
+
+        assert.equal(duplicate.response.status, 409);
+        assert.equal(
+            duplicate.data.error.code,
+            "RACE_TURN_ALREADY_ACTIVE"
+        );
+
+
+        // Preview a complete route without changing the live turn, then
+        // confirm it atomically. This is the same interaction used by qualifying.
+        let raceRoom = undo.data.room;
+        let activeTurn = raceRoom.event.activeRace.turn;
+        const plannedPositions = [];
+        let preview = null;
+        let movementSteps = 0;
+        while ((!preview || preview.status === "waiting-for-choice") && movementSteps < 30) {
+            const legalPositions = preview?.legalNextPositions ?? activeTurn.legalNextPositions;
+            const nextPosition = legalPositions[0];
+            assert.ok(nextPosition, "a waiting turn must expose a legal next space");
+            plannedPositions.push(nextPosition);
+            const routePreview = await post(
+                "race/turn/preview",
+                ownerId,
+                { positions: plannedPositions }
+            );
+            assert.equal(routePreview.response.status, 200);
+            preview = routePreview.data.preview;
+            movementSteps += 1;
+        }
+        assert.ok(movementSteps < 30, "movement should reach a completed or blocked route");
+        assert.ok(["complete", "stuck"].includes(preview.status));
+
+        const rejectedConfirm = await post(
+            "race/turn/confirm",
+            otherPlayerId,
+            { positions: plannedPositions }
+        );
+        assert.equal(rejectedConfirm.response.status, 403);
+        assert.equal(rejectedConfirm.data.error.code, "NOT_YOUR_CAR");
+
+        const confirmedRoute = await post(
+            "race/turn/confirm",
+            ownerId,
+            { positions: plannedPositions }
+        );
+        assert.equal(confirmedRoute.response.status, 200);
+        raceRoom = confirmedRoute.data.room;
+        activeTurn = raceRoom.event.activeRace.turn;
+        assert.equal(activeTurn.status, preview.status);
+
+        if (activeTurn.mechanicalWheel?.status === "awaiting-spin") {
+            const wheel = await post("race/turn/mechanical-wheel", ownerId);
+            assert.equal(wheel.response.status, 200);
+            raceRoom = wheel.data.room;
+        } else if (activeTurn.wreckWheel?.status === "awaiting-spin") {
+            const wheel = await post("race/turn/wreck-wheel", ownerId);
+            assert.equal(wheel.response.status, 200);
+            raceRoom = wheel.data.room;
+        }
+
+        if (raceRoom.pendingIncident) {
+            const acknowledged = await post("incident/acknowledge", ownerId);
+            assert.equal(acknowledged.response.status, 200);
+            raceRoom = acknowledged.data.room;
+        }
+
+        const rejectedApply = await post("race/turn/apply", otherPlayerId);
+        assert.equal(rejectedApply.response.status, 403);
+        assert.equal(rejectedApply.data.error.code, "NOT_YOUR_CAR");
+
+        const applied = await post("race/turn/apply", ownerId);
+        assert.equal(applied.response.status, 200);
+        assert.equal(applied.data.room.event.activeRace.turn, null);
+        if (applied.data.room.event.activeRace.yellowFlag) {
+            assert.equal(applied.data.room.event.activeRace.status, "yellow-flag");
+            assert.equal(applied.data.room.event.activeRace.nextCar, null);
+            const restarted = await post("race/restart", host.data.playerId);
+            assert.equal(restarted.response.status, 200);
+            assert.equal(restarted.data.room.event.activeRace.status, "running");
+            assert.equal(restarted.data.room.event.activeRace.yellowFlag, false);
+        } else {
+            assert.ok(applied.data.room.event.activeRace.nextCar);
+            assert.notEqual(
+                applied.data.room.event.activeRace.nextCar.carNumber,
+                currentCar.carNumber,
+                "the turn round should advance to a different car"
+            );
+        }
     });
 });
