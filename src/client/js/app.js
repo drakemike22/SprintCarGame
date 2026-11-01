@@ -65,9 +65,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const heatPreparationDialog = document.getElementById("heat-preparation-dialog");
     const heatPreparationCondition = document.getElementById("heat-preparation-condition");
     const heatPreparationStandings = document.getElementById("heat-preparation-standings");
+    const heatPreparationNextLineup = document.getElementById("heat-preparation-next-lineup");
+    const heatPreparationResultsHeading = document.getElementById("heat-preparation-results-heading");
+    const heatPreparationNextHeading = document.getElementById("heat-preparation-next-heading");
+    const heatPreparationNextSection = document.getElementById("heat-preparation-next-section");
+    const heatPreparationEyebrow = document.getElementById("heat-preparation-eyebrow");
     const heatPreparationPlayers = document.getElementById("heat-preparation-players");
     const heatPreparationFeedback = document.getElementById("heat-preparation-feedback");
     const heatPreparationReadyButton = document.getElementById("heat-preparation-ready");
+    const seasonReadyButton = document.getElementById("season-ready-button");
+    const seasonReadyPlayers = document.getElementById("season-ready-players");
+    const seasonReadyFeedback = document.getElementById("season-ready-feedback");
 
     /*
      * Draft screen elements.
@@ -567,16 +575,26 @@ document.addEventListener("DOMContentLoaded", () => {
                 rank.className = "race-standings-rank";
                 rank.textContent = `${index + 1}.`;
 
+                const carInfo = document.createElement("span");
+                carInfo.className = "race-standings-car-info";
+
                 const car = document.createElement("span");
                 car.className = "race-standings-car";
                 car.textContent = `#${result.carNumber} ${result.driverName}`;
-                car.title = `${result.playerName ?? ""}`.trim();
+
+                const owner = document.createElement("span");
+                owner.className = "race-standings-owner";
+                owner.textContent = result.playerName
+                    ? `Owner: ${result.playerName}`
+                    : "Owner: Unknown";
+
+                carInfo.append(car, owner);
 
                 const distance = document.createElement("span");
                 distance.className = "race-standings-distance";
                 distance.textContent = `${Number(result.distance)} spaces`;
 
-                item.append(rank, car, distance);
+                item.append(rank, carInfo, distance);
                 liveQualifyingStandings.appendChild(item);
             });
 
@@ -2431,7 +2449,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const car = document.createElement("span");
                 car.className = "race-standings-car";
                 car.textContent =
-                    `#${standing.carNumber ?? "?"} ${standing.driverName}`;
+                    `#${standing.carNumber ?? "?"} ${standing.driverName} · Owner: ${standing.ownerName ?? "Unowned"}`;
 
                 const points = document.createElement("span");
                 points.className = "race-standings-distance";
@@ -2647,24 +2665,39 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!heatPreparationDialog) return;
 
         const preparation = room?.event?.heatPreparation;
-        if (!preparation?.active) {
+        const transition = room?.event?.raceTransition;
+        const isInitialPreparation = Boolean(preparation?.active);
+        const isRaceTransition = Boolean(transition?.active);
+        if (!isInitialPreparation && !isRaceTransition) {
             if (heatPreparationDialog.open) heatPreparationDialog.close();
             return;
         }
 
-        const standings = room.event.qualifying?.standings ?? [];
-        heatPreparationCondition.textContent =
-            `Track Condition: ${room.event.trackCondition ?? "Normal"}`;
-        heatPreparationStandings.replaceChildren();
+        const isFinal = Boolean(transition?.final);
+        const previousRace = transition?.previousRace;
+        const results = isInitialPreparation
+            ? (room.event.qualifying?.standings ?? []).map((item) => ({ ...item, position: item.position ?? item.qualifyingPosition, status: item.isFinished ? "Finished" : "" }))
+            : (transition?.previousResults ?? []);
+        const lineup = isInitialPreparation
+            ? (preparation?.nextLineup ?? [])
+            : (transition?.nextLineup ?? []);
 
-        standings.forEach((standing) => {
+        heatPreparationEyebrow.textContent = isInitialPreparation
+            ? "QUALIFYING COMPLETE"
+            : isFinal ? "EVENT RACE COMPLETE" : "RACE COMPLETE";
+        document.getElementById("heat-preparation-title").textContent = isInitialPreparation
+            ? "Heat 1 Lineup"
+            : isFinal ? "A Main Results" : `${transition.previousRace} Results & ${transition.nextRace} Lineup`;
+        heatPreparationCondition.textContent = `Track Condition: ${room.event.trackCondition ?? "Normal"}`;
+        heatPreparationResultsHeading.textContent = isInitialPreparation ? "Qualifying Results" : `${previousRace} Results`;
+        heatPreparationNextHeading.textContent = isInitialPreparation ? "Heat 1 Lineup" : `${transition?.nextRace ?? "Next Race"} Lineup`;
+        heatPreparationNextSection.hidden = isFinal;
+
+        heatPreparationStandings.replaceChildren();
+        results.forEach((result, index) => {
             const row = document.createElement("tr");
-            [
-                standing.position,
-                standing.carNumber ?? "—",
-                standing.driverName ?? "Unknown driver",
-                standing.playerName ?? "—"
-            ].forEach((value) => {
+            const status = result.dnf ? "DNF" : (result.status || (isInitialPreparation ? "Qualified" : "Finished"));
+            [result.position ?? index + 1, result.carNumber ?? "—", result.driverName ?? "Unknown driver", result.playerName ?? "—", status].forEach((value) => {
                 const cell = document.createElement("td");
                 cell.textContent = String(value);
                 row.appendChild(cell);
@@ -2672,37 +2705,103 @@ document.addEventListener("DOMContentLoaded", () => {
             heatPreparationStandings.appendChild(row);
         });
 
+        heatPreparationNextLineup.replaceChildren();
+        lineup.forEach((entry, index) => {
+            const row = document.createElement("tr");
+            [entry.position ?? index + 1, entry.carNumber ?? "—", entry.driverName ?? "Unknown driver", entry.playerName ?? "—"].forEach((value) => {
+                const cell = document.createElement("td");
+                cell.textContent = String(value);
+                row.appendChild(cell);
+            });
+            heatPreparationNextLineup.appendChild(row);
+        });
+
         heatPreparationPlayers.replaceChildren();
-        preparation.players.forEach((player) => {
+        const players = isInitialPreparation ? preparation.players : (transition?.players ?? []);
+        players.forEach((player) => {
             const status = document.createElement("span");
-            status.className = player.ready
-                ? "heat-preparation-player is-ready"
-                : "heat-preparation-player";
-            const connectionStatus = player.online === false
-                ? "Offline"
-                : "Online";
-            status.textContent = `${player.name}: ${connectionStatus} · ${player.ready ? "Ready" : "Not ready"}`;
+            status.className = player.ready ? "heat-preparation-player is-ready" : "heat-preparation-player";
+            status.textContent = `${player.name}: ${player.online === false ? "Offline" : "Online"} · ${player.ready ? "Ready" : "Not ready"}`;
             heatPreparationPlayers.appendChild(status);
         });
 
-        const you = preparation.players.find((player) => player.isYou);
-        const alreadyReady = Boolean(you?.ready);
-        heatPreparationReadyButton.disabled = alreadyReady || isRequestInProgress;
-        heatPreparationReadyButton.textContent = alreadyReady
-            ? "Waiting for Players"
-            : "Im Ready";
-        const someoneOffline = preparation.players.some(
-            (player) => player.online === false
-        );
-        heatPreparationFeedback.textContent = alreadyReady
-            ? (someoneOffline
-                ? "You are ready. Waiting for every player to reconnect."
-                : "You are ready. Heat 1 starts when everyone is ready.")
-            : "Select Im Ready when you are ready to begin Heat 1.";
-
-        if (!heatPreparationDialog.open) {
-            heatPreparationDialog.showModal();
+        if (isFinal) {
+            heatPreparationPlayers.hidden = true;
+            heatPreparationReadyButton.hidden = true;
+            heatPreparationFeedback.textContent = "The A Main is complete. Final race results are shown above.";
+        } else {
+            heatPreparationPlayers.hidden = false;
+            heatPreparationReadyButton.hidden = false;
+            const you = players.find((player) => player.isYou);
+            const alreadyReady = Boolean(you?.ready);
+            heatPreparationReadyButton.disabled = alreadyReady || isRequestInProgress;
+            heatPreparationReadyButton.textContent = alreadyReady ? "Waiting for Players" : "I'm Ready";
+            const someoneOffline = players.some((player) => player.online === false);
+            heatPreparationFeedback.textContent = alreadyReady
+                ? (someoneOffline ? "You are ready. Waiting for every player to reconnect." : "You are ready. The next race starts when everyone is ready.")
+                : "Review the previous results and next lineup, then select I'm Ready.";
         }
+
+        if (!heatPreparationDialog.open) heatPreparationDialog.showModal();
+    }
+
+    function renderSeasonStandingsTable(tbody, standings, includeOwner) {
+        if (!tbody) return;
+        tbody.replaceChildren();
+        (standings ?? []).forEach((standing) => {
+            const row = document.createElement("tr");
+            const values = includeOwner
+                ? [standing.position, `#${standing.carNumber ?? "?"}`, standing.driverName ?? "Unknown driver", standing.ownerName ?? "Unowned", `${standing.points} pts`]
+                : [standing.position, standing.playerName ?? "Unknown owner", standing.carCount ?? 0, `${standing.points} pts`];
+            values.forEach((value) => {
+                const cell = document.createElement("td");
+                cell.textContent = String(value ?? "—");
+                row.appendChild(cell);
+            });
+            tbody.appendChild(row);
+        });
+    }
+
+    function renderSeasonLobby(room) {
+        const lobby = room?.seasonLobby;
+        if (!lobby?.active) return;
+        const final = Boolean(lobby.final);
+        if (heatPreparationDialog?.open) heatPreparationDialog.close();
+
+        if (final) {
+            const carWinner = room.pointStandings?.[0];
+            const ownerWinner = room.ownerPointStandings?.[0];
+            document.getElementById("season-winning-car").textContent = carWinner ? `#${carWinner.carNumber}` : "No car champion";
+            document.getElementById("season-winning-driver").textContent = carWinner?.driverName ?? "—";
+            document.getElementById("season-winning-car-owner").textContent = `Owner: ${carWinner?.ownerName ?? "—"}`;
+            document.getElementById("season-winning-car-points").textContent = carWinner ? `${carWinner.points} championship points` : "—";
+            document.getElementById("season-winning-owner").textContent = ownerWinner?.playerName ?? "No owner champion";
+            document.getElementById("season-winning-owner-cars").textContent = ownerWinner ? `${ownerWinner.carCount} cars on the team` : "—";
+            document.getElementById("season-winning-owner-points").textContent = ownerWinner ? `${ownerWinner.points} championship points` : "—";
+            renderSeasonStandingsTable(document.getElementById("final-car-points"), room.pointStandings, true);
+            renderSeasonStandingsTable(document.getElementById("final-owner-points"), room.ownerPointStandings, false);
+            if (window.location.hash !== "#season-championship") navigateToPage("season-championship");
+            return;
+        }
+
+        document.getElementById("season-lobby-title").textContent = `Event ${lobby.eventNumber} Complete — Season Standings`;
+        document.getElementById("season-lobby-description").textContent = `Current championship points after Event ${lobby.eventNumber}. Event ${lobby.eventNumber + 1} qualifying starts when every player is online and ready.`;
+        renderSeasonStandingsTable(document.getElementById("season-car-points"), room.pointStandings, true);
+        renderSeasonStandingsTable(document.getElementById("season-owner-points"), room.ownerPointStandings, false);
+        seasonReadyPlayers.replaceChildren();
+        (lobby.players ?? []).forEach((player) => {
+            const status = document.createElement("span");
+            status.className = player.ready ? "season-ready-player is-ready" : "season-ready-player";
+            status.textContent = `${player.name}: ${player.online === false ? "Offline" : "Online"} · ${player.ready ? "Ready" : "Not ready"}`;
+            seasonReadyPlayers.appendChild(status);
+        });
+        const you = lobby.players?.find((player) => player.isYou);
+        seasonReadyButton.disabled = Boolean(you?.ready) || isRequestInProgress;
+        seasonReadyButton.textContent = you?.ready ? "WAITING FOR PLAYERS" : "I'M READY";
+        seasonReadyFeedback.textContent = you?.ready
+            ? "You're ready. The next qualifying session starts when everyone is ready and online."
+            : "Review the standings, then select I'm Ready when your group is ready to continue.";
+        if (window.location.hash !== "#season-lobby") navigateToPage("season-lobby");
     }
 
     function renderRoom(room) {
@@ -2719,7 +2818,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         currentRoom = room;
-        renderHeatPreparation(room);
+        renderSeasonLobby(room);
+        if (!room?.seasonLobby?.active) renderHeatPreparation(room);
         renderTrackStatus(room);
         renderChampionshipStandings(room);
         if (qualifyingEventLogRoomCode !== room.code) {
@@ -2737,12 +2837,9 @@ document.addEventListener("DOMContentLoaded", () => {
         recordQualifyingWheelEvent(room);
         renderIncident(room);
         renderRaceTokens(room);
-        if (room.status === "started" && room.event) {
+        if (room.status === "started" && room.event && !room.seasonLobby?.active) {
             const requestedPage = window.location.hash.slice(1);
-
-            if (requestedPage !== "race") {
-                navigateToPage("race");
-            }
+            if (requestedPage !== "race") navigateToPage("race");
         }
         renderQualifying(room);
 
@@ -2783,18 +2880,11 @@ document.addEventListener("DOMContentLoaded", () => {
         
             if (room.status === "started") {
             renderDraft(room);
-
-            // A started event has progressed beyond the draft.
-            // Keep it on the race page, which will display qualifying
-            // controls when qualifying is the active phase.
-            if (room.event) {
-                if (window.location.hash !== "#race") {
-                    navigateToPage("race");
-                }
-            } else if (
-                window.location.hash !== "#draft" &&
-                window.location.hash !== "#race"
-            ) {
+            if (room.seasonLobby?.active) {
+                renderSeasonLobby(room);
+            } else if (room.event) {
+                if (window.location.hash !== "#race") navigateToPage("race");
+            } else if (window.location.hash !== "#draft" && window.location.hash !== "#race") {
                 navigateToPage("draft");
             }
         } else if (window.location.hash === "#draft") {
@@ -3121,6 +3211,26 @@ document.addEventListener("DOMContentLoaded", () => {
     /*
      * Submit this player's Heat 1 readiness confirmation.
      */
+    seasonReadyButton.addEventListener("click", async () => {
+        if (isRequestInProgress || !currentRoom) return;
+        isRequestInProgress = true;
+        seasonReadyButton.disabled = true;
+        seasonReadyFeedback.textContent = "Submitting your readiness...";
+        try {
+            const data = await requestJson(
+                `/api/rooms/${encodeURIComponent(currentRoom.code)}/season/ready`,
+                { method: "POST", headers: getPlayerHeaders() }
+            );
+            renderRoom(data.room);
+        } catch (error) {
+            seasonReadyFeedback.textContent = error.message || "Could not submit your readiness.";
+            seasonReadyButton.disabled = false;
+        } finally {
+            isRequestInProgress = false;
+            if (currentRoom) renderRoom(currentRoom);
+        }
+    });
+
     heatPreparationReadyButton.addEventListener("click", async () => {
         if (isRequestInProgress || !currentRoom) return;
 
@@ -3129,8 +3239,11 @@ document.addEventListener("DOMContentLoaded", () => {
         heatPreparationFeedback.textContent = "Submitting your readiness...";
 
         try {
+            const readinessPath = currentRoom.event?.raceTransition?.active
+                ? "race/ready"
+                : "heats/ready";
             const data = await requestJson(
-                `/api/rooms/${encodeURIComponent(currentRoom.code)}/heats/ready`,
+                `/api/rooms/${encodeURIComponent(currentRoom.code)}/${readinessPath}`,
                 {
                     method: "POST",
                     headers: getPlayerHeaders()

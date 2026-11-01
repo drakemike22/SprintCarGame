@@ -65,7 +65,7 @@ test("a lap-target race starts another round when the target is not reached", ()
     assert.equal(race.round.completedCarIds.length, 0);
 });
 
-test("a leader crossing the finish waits until the round ends before being removed", () => {
+test("a leader is recorded and removed immediately after its finishing turn", () => {
     const race = createRaceState([
         makeCar("car-a", 29, 2),
         makeCar("car-b", 10, 1)
@@ -74,7 +74,7 @@ test("a leader crossing the finish waits until the round ends before being remov
     applyCompletedRaceTurn(race, "car-a", makeTurn(29, 0));
 
     assert.equal(race.raceCars[0].completedLaps, 3);
-    assert.equal(race.raceCars[0].status, CAR_STATUSES.RUNNING);
+    assert.equal(race.raceCars[0].status, CAR_STATUSES.FINISHED);
     assert.equal(race.status, "running");
     assert.equal(getCurrentRaceCar(race).carId, "car-b");
 

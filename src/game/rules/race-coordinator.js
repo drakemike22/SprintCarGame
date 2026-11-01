@@ -65,7 +65,6 @@ function createRaceState(raceCars, lapsToComplete = null) {
         lapsToComplete,
         finishOrder: [],
         dnfOrder: [],
-        pendingFinishCarIds: [],
         status: alreadyReachedTarget
             ? "completed"
             : round.status === ROUND_STATUS.COMPLETED
@@ -106,9 +105,10 @@ function getCurrentRaceCar(raceState) {
  * the race state becomes "round-complete" at the end of a round.
  *
  * With a lap target:
- * - Cars crossing the finish are pending until the current round ends.
- * - Finishers are then recorded and removed from the track.
- * - Remaining running cars continue in a newly calculated round.
+ * - Cars crossing the finish are recorded immediately after their turn.
+ * - Finished cars are removed from the active track immediately.
+ * - Remaining running cars keep the current round order, then continue
+ *   in a newly calculated round.
  * - The race ends only after every car has finished or been retired.
  */
 function advanceRaceAfterTurn(raceState) {
@@ -129,11 +129,6 @@ function advanceRaceAfterTurn(raceState) {
             raceState.status = "round-complete";
             return raceState;
         }
-
-        // Cars that crossed the finish during this round are officially
-        // recorded and removed from the track only after every car in the
-        // fixed round order has completed its turn.
-        recordPendingFinishers(raceState);
 
         const runningCars = raceState.raceCars.filter(
             (raceCar) => raceCar.status === CAR_STATUSES.RUNNING
@@ -199,24 +194,10 @@ function skipRaceCarTurn(raceState, carId) {
 }
 
 
-function recordPendingFinishers(raceState) {
-    const pending = raceState.pendingFinishCarIds ?? [];
-    for (const carId of pending) {
-        const raceCar = raceState.raceCars.find((car) => car.carId === carId);
-        if (raceCar && raceCar.status === CAR_STATUSES.RUNNING) {
-            raceCar.status = CAR_STATUSES.FINISHED;
-            if (!raceState.finishOrder.includes(carId)) {
-                raceState.finishOrder.push(carId);
-            }
-        }
-    }
-    raceState.pendingFinishCarIds = [];
-}
-
 /*
  * Stops the current round immediately when a yellow flag occurs.
- * Cars that already crossed the finish line in this round are recorded
- * as finishers; all other running cars will restart after the caution.
+ * Cars that already completed a finish-line turn remain recorded as
+ * finishers; all other running cars will restart after the caution.
  */
 
 function stopRaceRoundForYellow(raceState, carsToBack = []) {
@@ -230,9 +211,6 @@ function stopRaceRoundForYellow(raceState, carsToBack = []) {
     }
 
     endTurnRoundForYellow(raceState.round);
-    if (raceState.lapsToComplete !== null && raceState.lapsToComplete !== undefined) {
-        recordPendingFinishers(raceState);
-    }
 
     raceState.yellowFlag = true;
     raceState.yellowFlagCarsToBack = [...new Set(carsToBack)];
@@ -606,18 +584,17 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
     // same incident together in their original round order.
     raceState.dnfOrder = [...newlyRetiredIds, ...raceState.dnfOrder];
 
-    // A car that reaches the target is a pending finisher until the
-    // current round is complete. It remains in the fixed round lineup
-    // so every other eligible car gets its turn in this round.
+    // Record a finisher immediately after this car's completed movement
+    // turn. It no longer occupies the track or receives another turn.
     if (
         raceState.lapsToComplete !== null &&
         raceState.lapsToComplete !== undefined &&
         updatedCar.status === CAR_STATUSES.RUNNING &&
         updatedCar.completedLaps >= raceState.lapsToComplete
     ) {
-        raceState.pendingFinishCarIds ??= [];
-        if (!raceState.pendingFinishCarIds.includes(carId)) {
-            raceState.pendingFinishCarIds.push(carId);
+        updatedCar.status = CAR_STATUSES.FINISHED;
+        if (!raceState.finishOrder.includes(carId)) {
+            raceState.finishOrder.push(carId);
         }
     }
 

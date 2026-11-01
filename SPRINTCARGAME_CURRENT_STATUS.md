@@ -655,3 +655,90 @@ A car that wrecked in a later round was being shown behind cars that had DNF'd e
 - The server snapshot already included the display-safe `playerName` for each active-race standing, so no server data model or API changes were necessary.
 - Changed files: `src/client/js/app.js`, `src/client/css/styles.css`.
 - Owner fallback displays `Owner: Unknown` if a snapshot lacks an owner name.
+
+# DEVELOPMENT HANDOFF UPDATE - 2026-10-31 (Race-to-race results and lineup transitions)
+
+## User request
+- Show Heat 1's actual starting lineup beside qualifying results in the preparation dialog.
+- At the end of each race, show the previous race's finishing results beside the next race's lineup.
+- Include each car owner's player name in both sections for every player.
+- Carry the same race flow through Heats 2–4, the B Main, and the A Main.
+
+## Implementation
+- Expanded the preparation dialog into two side-by-side tables: previous results/qualifying results and next-race lineup.
+- Heat 1 preparation now publishes the eight-car Heat 1 lineup with starting position, car number, driver, and owner name.
+- After a live race reaches `completed`, the room manager records its official results through the existing Season result methods and creates a shared transition:
+  - Heat 1 → Heat 2
+  - Heat 2 → Heat 3
+  - Heat 3 → Heat 4
+  - Heat 4 → B Main
+  - B Main → A Main
+  - A Main → final results (no next lineup)
+- Every transition includes previous finishing positions/statuses and the next lineup, with display-safe owner names and owner-relative `isYours` flags.
+- The next race starts only after every room player confirms readiness and is online. A reconnecting player's authenticated room poll rechecks the readiness gate.
+- The same shared transition dialog is used for each step; it closes when the next race starts and reappears when that race completes.
+- The final A Main screen displays results without a readiness button or next lineup.
+
+## Files changed
+- `src/server/rooms.js`
+- `src/server/server.js`
+- `src/client/index.html`
+- `src/client/js/app.js`
+- `src/client/css/styles.css`
+- `tests/rooms.test.js`
+- `SPRINTCARGAME_CURRENT_STATUS.md`
+
+## Tests and limitations
+- Added tests for Heat 1 lineup owner names, all race transitions through the A Main, owner names in transition results/lineups, and shared readiness before the next race starts.
+- Full `npm test`: **556 passed, 0 failed, 0 skipped, 0 cancelled**.
+- JavaScript syntax checks passed for the changed server and client scripts.
+- No real browser/multiplayer playthrough was performed in this environment. The full transition sequence was tested through the room manager by simulating completed race states and verifying official result recording, lineup generation, and readiness-gated starts.
+- A Main results are displayed at the end of the event race sequence; event championship standings/scoring remain a separate existing workflow and are not automatically finalized by this transition screen.
+- No Git commit was created. The uploaded archive did not include `.git`; the user's local Git repository and commit history were not touched.
+
+# DEVELOPMENT HANDOFF UPDATE - 2026-10-31 (Qualifying live standings owner names)
+
+## Fix
+- The qualifying live standings now display `Owner: <player name>` directly beneath each car number and driver name, matching the owner display used by active race standings.
+- The server's qualifying snapshot already included the display-safe `playerName`; the issue was that the qualifying client renderer only put the owner in a hover title instead of rendering it visibly.
+- Missing owner values display as `Owner: Unknown`.
+
+## Validation
+- `node --check src/client/js/app.js` passed.
+- Full `npm test`: **556 passed, 0 failed, 0 skipped, 0 cancelled**.
+- No live browser test was performed.
+
+
+# DEVELOPMENT HANDOFF UPDATE - 2026-10-31 (Yellow rules, immediate finishes, 24-car A Main)
+
+## User-requested rule changes
+- Mechanical wheel incidents must never produce or display a yellow flag. Only wreck-wheel incidents can raise a yellow.
+- Record a car's finishing position immediately after its own completed turn when it reaches the race lap target, rather than waiting for the full round to finish.
+- Five cars per heat transfer directly to the A Main (20 total). Four B Main finishers transfer, producing a 24-car A Main.
+- In a 32-car event, the eight B Main non-transfers are ranked 25th through 32nd in their B Main finishing order.
+
+## Implementation
+- `src/game/rules/race-results.js`: default heat transfer limit is now five; exported `B_MAIN_TRANSFER_LIMIT` remains four.
+- `src/game/season/season.js`: B Main results explicitly use the four-car transfer limit. Heat results use the five-car default. A Main lineup is generated from 20 heat transfers plus four B Main transfers.
+- `src/game/rules/race-coordinator.js`: when a car completes the target lap after its turn, its status changes to `FINISHED` and its ID is appended to `finishOrder` immediately. The car is skipped if it appears later in the fixed round order. Remaining cars retain their existing turn order. Already-finished cars stay finished through yellow-flag restarts.
+- Yellow flag creation remains restricted to wreck resolution: the server marks `pendingIncident.yellowFlag` true only when `wheelType === "wreck"` and the wreck result raised a yellow. Mechanical incidents explicitly test false.
+- `src/game/season/event-standings.js` already ranks A Main finishers first, followed by B Main non-transfers in official B Main order. With the 24-car A Main this naturally assigns the eight B Main non-transfers positions 25–32.
+
+## Regression tests and validation
+- Updated heat transfer tests for five direct transfers and preserved the B Main's four-transfer cap.
+- Added coverage for 24-car A Main, 12-car B Main, and B Main non-transfers occupying positions 25–32.
+- Updated race completion coverage to verify immediate finish recording/removal.
+- Added a room-level assertion that a mechanical incident's `yellowFlag` is false.
+- Full `npm test`: **558 passed, 0 failed, 0 skipped, 0 cancelled**.
+- No real browser/multiplayer playthrough performed.
+- No Git commit created; the supplied archive did not contain `.git`.
+
+
+# DEVELOPMENT HANDOFF UPDATE - 2026-10-31 (Season standings and championship lobbies)
+
+- After each A Main, the server records the completed event's official standings and awards its championship points before presenting the season lobby.
+- Multi-event seasons now have a dedicated between-event page showing car championship standings (car number, driver, owner, points) and owner championship standings.
+- The next event's qualifying session starts only after every player has readied up and is online. A returning player triggers a readiness recheck.
+- After the final event, the season lobby becomes the final championship page. It shows Congratulations, the winning car/driver/owner, the winning owner, and both complete final points tables.
+- Existing scoring/tie-break rules are reused; no points are reset between events.
+- Validation: full Node test suite and JavaScript syntax checks are recorded in the handoff for this update. Browser/multiplayer visual testing has not been performed.

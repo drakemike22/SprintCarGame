@@ -215,6 +215,76 @@
                 </div>
             </section>
 
+            <!-- Season standings lobby between completed events and final championship. -->
+            <section class="page-section season-lobby-page" id="page-season-lobby"
+                     data-page-section="season-lobby" aria-labelledby="season-lobby-title" hidden>
+                <p class="eyebrow" id="season-lobby-eyebrow">SEASON STANDINGS</p>
+                <h1 id="season-lobby-title">Event Complete — Season Standings</h1>
+                <p id="season-lobby-description">Review the current car and owner championship points before the next event.</p>
+                <div class="season-lobby-grid">
+                    <section class="season-standings-panel">
+                        <h2>Car Championship</h2>
+                        <div class="season-table-wrap"><table class="season-points-table">
+                            <thead><tr><th>Pos.</th><th>Car</th><th>Driver</th><th>Owner</th><th>Points</th></tr></thead>
+                            <tbody id="season-car-points"></tbody>
+                        </table></div>
+                    </section>
+                    <section class="season-standings-panel">
+                        <h2>Owner Championship</h2>
+                        <div class="season-table-wrap"><table class="season-points-table">
+                            <thead><tr><th>Pos.</th><th>Owner</th><th>Cars</th><th>Points</th></tr></thead>
+                            <tbody id="season-owner-points"></tbody>
+                        </table></div>
+                    </section>
+                </div>
+                <section class="season-ready-panel">
+                    <h2>Ready for the Next Event?</h2>
+                    <p>Qualifying for the next event begins once every player is online and has selected Ready.</p>
+                    <div id="season-ready-players" class="season-ready-players"></div>
+                    <p id="season-ready-feedback" class="feedback-message" role="status" aria-live="polite"></p>
+                    <button class="button button-primary" id="season-ready-button" type="button">I'M READY</button>
+                </section>
+            </section>
+
+            <!-- Final championship lobby shown after the last event. -->
+            <section class="page-section season-championship-page" id="page-season-championship"
+                     data-page-section="season-championship" aria-labelledby="season-championship-title" hidden>
+                <p class="eyebrow">SEASON COMPLETE</p>
+                <h1 id="season-championship-title">Congratulations!</h1>
+                <p class="season-championship-subtitle">The season champions have been crowned.</p>
+                <div class="season-winners-grid">
+                    <article class="season-winner-card">
+                        <p class="eyebrow">CAR CHAMPION</p>
+                        <h2 id="season-winning-car">—</h2>
+                        <p id="season-winning-driver">—</p>
+                        <p id="season-winning-car-owner">Owner: —</p>
+                        <strong id="season-winning-car-points">—</strong>
+                    </article>
+                    <article class="season-winner-card owner-winner-card">
+                        <p class="eyebrow">OWNER CHAMPION</p>
+                        <h2 id="season-winning-owner">—</h2>
+                        <p id="season-winning-owner-cars">—</p>
+                        <strong id="season-winning-owner-points">—</strong>
+                    </article>
+                </div>
+                <div class="season-lobby-grid season-final-standings">
+                    <section class="season-standings-panel">
+                        <h2>Final Car Championship Points</h2>
+                        <div class="season-table-wrap"><table class="season-points-table">
+                            <thead><tr><th>Pos.</th><th>Car</th><th>Driver</th><th>Owner</th><th>Points</th></tr></thead>
+                            <tbody id="final-car-points"></tbody>
+                        </table></div>
+                    </section>
+                    <section class="season-standings-panel">
+                        <h2>Final Owner Championship Points</h2>
+                        <div class="season-table-wrap"><table class="season-points-table">
+                            <thead><tr><th>Pos.</th><th>Owner</th><th>Cars</th><th>Points</th></tr></thead>
+                            <tbody id="final-owner-points"></tbody>
+                        </table></div>
+                    </section>
+                </div>
+            </section>
+
             <!-- Draft screen shown after the room starts. -->
             <section class="page-section draft-page"
                      id="page-draft" data-page-section="draft"
@@ -716,7 +786,7 @@
     </div>
     <dialog id="heat-preparation-dialog" aria-labelledby="heat-preparation-title">
         <div class="heat-preparation-content">
-            <p class="eyebrow">QUALIFYING COMPLETE</p>
+            <p class="eyebrow" id="heat-preparation-eyebrow">QUALIFYING COMPLETE</p>
             <h2 id="heat-preparation-title">Heat 1 Lineup</h2>
             <p class="heat-preparation-condition" id="heat-preparation-condition">
                 Track Condition: Normal
@@ -724,18 +794,25 @@
             <p class="heat-preparation-instructions">
                 Review the qualifying positions below. Heat 1 will begin after every player is ready.
             </p>
-            <div class="heat-preparation-standings-wrap">
-                <table class="heat-preparation-standings">
-                    <thead>
-                        <tr>
-                            <th>Pos.</th>
-                            <th>Car</th>
-                            <th>Driver</th>
-                            <th>Player</th>
-                        </tr>
-                    </thead>
-                    <tbody id="heat-preparation-standings"></tbody>
-                </table>
+            <div class="heat-preparation-columns">
+                <section class="heat-preparation-section">
+                    <h3 id="heat-preparation-results-heading">Qualifying Results</h3>
+                    <div class="heat-preparation-standings-wrap">
+                        <table class="heat-preparation-standings">
+                            <thead><tr><th>Pos.</th><th>Car</th><th>Driver</th><th>Owner</th><th>Result</th></tr></thead>
+                            <tbody id="heat-preparation-standings"></tbody>
+                        </table>
+                    </div>
+                </section>
+                <section class="heat-preparation-section" id="heat-preparation-next-section">
+                    <h3 id="heat-preparation-next-heading">Heat 1 Lineup</h3>
+                    <div class="heat-preparation-standings-wrap">
+                        <table class="heat-preparation-standings">
+                            <thead><tr><th>Pos.</th><th>Car</th><th>Driver</th><th>Owner</th></tr></thead>
+                            <tbody id="heat-preparation-next-lineup"></tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
             <div class="heat-preparation-players" id="heat-preparation-players"></div>
             <p class="heat-preparation-feedback" id="heat-preparation-feedback" aria-live="polite"></p>

@@ -2572,8 +2572,8 @@ a {
 /* ---------- Heat 1 preparation dialog ---------- */
 
 #heat-preparation-dialog {
-    width: min(760px, calc(100% - 32px));
-    max-width: 760px;
+    width: min(1180px, calc(100% - 32px));
+    max-width: 1180px;
     max-height: min(88vh, 900px);
     padding: 0;
     overflow: hidden;
@@ -2623,6 +2623,25 @@ a {
     color: var(--muted);
 }
 
+.heat-preparation-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+
+.heat-preparation-section {
+    min-width: 0;
+}
+
+.heat-preparation-section h3 {
+    margin: 0 0 9px;
+    color: var(--accent);
+    font-size: 14px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
 .heat-preparation-standings-wrap {
     max-height: 38vh;
     overflow: auto;
@@ -2640,7 +2659,7 @@ a {
 .heat-preparation-standings td {
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
-    font-size: 13px;
+    font-size: 12px;
 }
 
 .heat-preparation-standings th {
@@ -2699,6 +2718,16 @@ a {
     opacity: 0.65;
 }
 
+@media (max-width: 760px) {
+    .heat-preparation-columns {
+        grid-template-columns: 1fr;
+    }
+
+    .heat-preparation-standings-wrap {
+        max-height: 32vh;
+    }
+}
+
 /* Race incident dialog styling */
 #incident-dialog {
     width: min(460px, calc(100% - 32px));
@@ -2750,4 +2779,141 @@ a {
     width: 25px;
     height: 18px;
     flex: 0 0 auto;
+}
+
+/* Season standings and championship lobbies */
+.season-lobby-page,
+.season-championship-page {
+    width: min(1400px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 34px 0 56px;
+}
+
+.season-lobby-grid,
+.season-winners-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    margin: 24px 0;
+}
+
+.season-standings-panel,
+.season-ready-panel,
+.season-winner-card {
+    min-width: 0;
+    padding: 22px;
+    border: 1px solid var(--border, #344047);
+    border-radius: 16px;
+    background: var(--panel, #171e22);
+}
+
+.season-standings-panel h2,
+.season-ready-panel h2 {
+    margin-top: 0;
+}
+
+.season-table-wrap {
+    max-height: 520px;
+    overflow: auto;
+}
+
+.season-points-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .94rem;
+}
+
+.season-points-table th,
+.season-points-table td {
+    padding: 10px 9px;
+    border-bottom: 1px solid rgb(255 255 255 / 9%);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.season-points-table th {
+    position: sticky;
+    top: 0;
+    background: #20292e;
+    color: var(--muted, #aeb9bd);
+    font-size: .78rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.season-points-table tbody tr:first-child td {
+    color: #f0d36b;
+    font-weight: 800;
+}
+
+.season-ready-panel {
+    margin-top: 22px;
+    text-align: center;
+}
+
+.season-ready-players {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin: 18px 0;
+}
+
+.season-ready-player {
+    padding: 8px 12px;
+    border: 1px solid #59636a;
+    border-radius: 999px;
+    color: var(--muted, #c2c9cc);
+}
+
+.season-ready-player.is-ready {
+    border-color: #86c98c;
+    color: #a8e6ad;
+}
+
+.season-championship-page {
+    text-align: center;
+}
+
+.season-championship-page > h1 {
+    margin: 8px 0;
+    font-size: clamp(2.6rem, 7vw, 5rem);
+    color: #f0d36b;
+}
+
+.season-championship-subtitle {
+    margin-bottom: 28px;
+    color: var(--muted, #b9c2c6);
+}
+
+.season-winner-card {
+    padding: 30px 22px;
+    border-color: #9b8546;
+    background: linear-gradient(145deg, #29271e, #171e22 70%);
+}
+
+.season-winner-card h2 {
+    margin: 8px 0;
+    font-size: clamp(1.8rem, 4vw, 3rem);
+}
+
+.season-winner-card strong {
+    display: inline-block;
+    margin-top: 12px;
+    color: #f0d36b;
+    font-size: 1.25rem;
+}
+
+.season-final-standings {
+    text-align: left;
+}
+
+@media (max-width: 850px) {
+    .season-lobby-grid,
+    .season-winners-grid {
+        grid-template-columns: 1fr;
+    }
+    .season-table-wrap {
+        max-height: 420px;
+    }
 }

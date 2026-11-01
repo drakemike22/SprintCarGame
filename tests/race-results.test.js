@@ -36,7 +36,7 @@ test("race results preserve the order in which cars finish", () => {
     );
 });
 
-test("the first four eligible finishers receive transfer positions", () => {
+test("the first five eligible heat finishers receive transfer positions", () => {
     const finishers = Array.from({ length: 8 }, (_, index) => ({
         carId: `car-${index + 1}`,
         statusAtFinish: "running"
@@ -46,7 +46,7 @@ test("the first four eligible finishers receive transfer positions", () => {
 
     assert.deepEqual(
         results.map((result) => result.transferPosition),
-        [1, 2, 3, 4, null, null, null, null]
+        [1, 2, 3, 4, 5, null, null, null]
     );
 });
 
@@ -72,7 +72,7 @@ test("an out-for-event car loses its transfer spot to the next eligible finisher
 
     assert.deepEqual(
         results.map((result) => result.transferPosition),
-        [1, 2, null, 3, 4, null]
+        [1, 2, null, 3, 4, 5]
     );
 });
 
@@ -172,4 +172,16 @@ test("race results reject invalid track distances", () => {
             /trackDistance/
         );
     }
+});
+
+test("the B-main can retain its four-car transfer limit", () => {
+    const finishers = Array.from({ length: 8 }, (_, index) => ({
+        carId: `car-${index + 1}`,
+        statusAtFinish: "running"
+    }));
+    const results = createRaceResults(finishers, 4);
+    assert.deepEqual(
+        results.map((result) => result.transferPosition),
+        [1, 2, 3, 4, null, null, null, null]
+    );
 });

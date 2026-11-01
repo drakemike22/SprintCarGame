@@ -19,7 +19,9 @@
 
 const { CAR_STATUSES } = require("./car-status");
 
-const TRANSFER_LIMIT = 4;
+const HEAT_TRANSFER_LIMIT = 5;
+const B_MAIN_TRANSFER_LIMIT = 4;
+const TRANSFER_LIMIT = HEAT_TRANSFER_LIMIT;
 
 /*
  * Validate an optional progress value.
@@ -48,9 +50,12 @@ function validateOptionalProgress(value, fieldName, carId) {
  * OUT_FOR_RACE does not disqualify a car here because the special
  * final-crossing rule says that status does not cancel its result.
  */
-function createRaceResults(finishers) {
+function createRaceResults(finishers, transferLimit = TRANSFER_LIMIT) {
     if (!Array.isArray(finishers)) {
         throw new Error("Finishers must be provided as an array.");
+    }
+    if (!Number.isInteger(transferLimit) || transferLimit < 0) {
+        throw new Error("Transfer limit must be a nonnegative integer.");
     }
 
     const seenCarIds = new Set();
@@ -102,7 +107,7 @@ function createRaceResults(finishers) {
 
         if (
             eligibleToTransfer &&
-            nextTransferPosition <= TRANSFER_LIMIT
+            nextTransferPosition <= transferLimit
         ) {
             transferPosition = nextTransferPosition;
             nextTransferPosition++;
@@ -125,5 +130,7 @@ function createRaceResults(finishers) {
 
 module.exports = {
     TRANSFER_LIMIT,
+    HEAT_TRANSFER_LIMIT,
+    B_MAIN_TRANSFER_LIMIT,
     createRaceResults
 };

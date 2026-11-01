@@ -1518,6 +1518,7 @@ test("active race mechanical incidents resolve, acknowledge, and allow turn comp
     );
     const resolved = manager.resolveActiveRaceMechanicalWheel(code, ownerId);
     assert.equal(resolved.pendingIncident.wheelType, "mechanical");
+    assert.equal(resolved.pendingIncident.yellowFlag, false);
     assert.equal(raceRecord.currentTurn.mechanicalWheel.status, "resolved");
     assert.equal(resolved.raceWheelEvents.length, 1);
     assert.equal(resolved.raceWheelEvents[0].wheelType, "mechanical");
@@ -1678,4 +1679,130 @@ test("room manager restarts a yellow-flag race and rejects a restart without yel
     assert.equal(restarted.event.activeRace.status, "running");
     assert.equal(restarted.event.activeRace.yellowFlag, false);
     assert.ok(restarted.event.activeRace.nextCar);
+});
+
+test("Heat 1 preparation publishes the Heat 1 lineup with every car owner", () => {
+    const context = createQualifyingRoom();
+    const snapshot = completeAllQualifyingRuns(context);
+    const lineup = snapshot.event.heatPreparation.nextLineup;
+
+    assert.equal(lineup.length, 8);
+    assert.equal(lineup[0].position, 1);
+    assert.ok(lineup.every((entry) => entry.carNumber && entry.driverName && entry.playerName));
+    assert.ok(lineup.some((entry) => entry.playerName === "Host"));
+    assert.ok(lineup.some((entry) => entry.playerName === "Guest"));
+});
+
+test("completed heats and mains transition through every lineup with shared owner names", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    startReadyHeat1(context);
+
+    const completeCurrentRace = () => {
+        const room = manager.rooms.get(code);
+        const raceState = room.season.currentEvent.activeRace.state;
+        raceState.status = "completed";
+        raceState.officialFinishOrder = raceState.raceCars.map((car) => car.carId);
+        assert.equal(manager._recordCompletedRaceAndPrepareNext(room), true);
+        const transition = manager.getRoom(code, host.playerId).event.raceTransition;
+        assert.equal(transition.active, true);
+        assert.ok(transition.previousResults.length > 0);
+        assert.ok(transition.previousResults.every((result) => result.playerName));
+        if (!transition.final) {
+            assert.ok(transition.nextLineup.length > 0);
+            assert.ok(transition.nextLineup.every((entry) => entry.playerName));
+            manager.setRaceTransitionReady(code, host.playerId);
+            const started = manager.setRaceTransitionReady(code, guest.playerId);
+            assert.equal(started.event.activeRace.status, "running");
+            assert.equal(started.event.raceTransition.active, false);
+            return started.event.activeRace.raceType === "heat"
+                ? started.event.activeRace.heatNumber
+                : started.event.activeRace.raceType;
+        }
+        return "final";
+    };
+
+    assert.equal(completeCurrentRace(), 2);
+    assert.equal(completeCurrentRace(), 3);
+    assert.equal(completeCurrentRace(), 4);
+    assert.equal(completeCurrentRace(), "b-main");
+    assert.equal(completeCurrentRace(), "a-main");
+    assert.equal(completeCurrentRace(), "final");
+
+    const finalSnapshot = manager.getRoom(code, guest.playerId);
+    assert.equal(finalSnapshot.event.raceTransition.final, true);
+    assert.equal(finalSnapshot.event.raceTransition.previousRace, "A Main");
+    assert.equal(finalSnapshot.event.raceTransition.nextLineup.length, 0);
+});
+
+test("race transition readiness waits for every online player", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    startReadyHeat1(context);
+    const room = manager.rooms.get(code);
+    const raceState = room.season.currentEvent.activeRace.state;
+    raceState.status = "completed";
+    raceState.officialFinishOrder = raceState.raceCars.map((car) => car.carId);
+    manager._recordCompletedRaceAndPrepareNext(room);
+
+    const hostReady = manager.setRaceTransitionReady(code, host.playerId);
+    assert.equal(hostReady.event.raceTransition.active, true);
+    assert.equal(hostReady.event.raceTransition.players[0].ready, true);
+    assert.equal(hostReady.event.activeRace.status, "completed");
+
+    const guestReady = manager.setRaceTransitionReady(code, guest.playerId);
+    assert.equal(guestReady.event.raceTransition.active, false);
+    assert.equal(guestReady.event.activeRace.heatNumber, 2);
+});
+
+
+test("season standings snapshots show the owner beside every car", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, code } = context;
+    const room = manager.rooms.get(code);
+    const snapshot = manager.getRoom(code, host.playerId);
+
+    assert.ok(snapshot.pointStandings.length > 0);
+    assert.ok(snapshot.pointStandings.every((standing) =>
+        typeof standing.ownerName === "string" && standing.ownerName.length > 0
+    ));
+    assert.equal(snapshot.seasonLobby.active, false);
+    assert.equal(snapshot.seasonLobby.eventNumber, 1);
+});
+
+test("season event lobby waits for every player before starting next qualifying", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    const room = manager.rooms.get(code);
+    room.season.currentEvent.phase = "complete";
+    room.season.currentEventNumber = 1;
+    room.season.eventCount = 3;
+
+    const firstReady = manager.setSeasonEventReady(code, host.playerId);
+    assert.equal(firstReady.seasonLobby.active, true);
+    assert.equal(firstReady.seasonLobby.players.find((player) => player.isYou).ready, true);
+    assert.equal(firstReady.event.phase, "complete");
+
+    const secondReady = manager.setSeasonEventReady(code, guest.playerId);
+    assert.equal(secondReady.seasonLobby.active, false);
+    assert.equal(secondReady.event.eventNumber, 2);
+    assert.equal(secondReady.event.phase, "qualifying");
+});
+
+test("final event season lobby is marked complete and does not offer next-event readiness", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, code } = context;
+    const room = manager.rooms.get(code);
+    room.season.currentEvent.phase = "complete";
+    room.season.currentEventNumber = 3;
+    room.season.eventCount = 3;
+    room.season.isComplete = true;
+
+    const snapshot = manager.getRoom(code, host.playerId);
+    assert.equal(snapshot.seasonLobby.active, true);
+    assert.equal(snapshot.seasonLobby.final, true);
+    expectRoomError(
+        () => manager.setSeasonEventReady(code, host.playerId),
+        "SEASON_LOBBY_NOT_ACTIVE"
+    );
 });

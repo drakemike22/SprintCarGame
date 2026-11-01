@@ -146,6 +146,8 @@ class RoomManager {
             pendingIncident: null,
             // Heat-one preparation is separate from lobby readiness.
             heatPreparation: null,
+            // Shared results/lineup gate between every heat and main event.
+            raceTransition: null,
             // Persistent room history so every player can see qualifying wheel events.
             qualifyingWheelEvents: [],
             // Wheel events for the currently active heat/main are separate
@@ -220,6 +222,7 @@ class RoomManager {
         // A returning player may be the final missing online member. Recheck
         // readiness after refreshing their presence so the heat can resume.
         this._startHeatWhenEveryoneIsReadyAndOnline(room);
+        this._startNextEventWhenEveryoneIsReadyAndOnline(room);
 
         return this.createRoomSnapshot(room, playerId);
     }
@@ -1063,6 +1066,150 @@ class RoomManager {
 
         return this.createRoomSnapshot(room, player.id);
     }
+    _getRaceLabel(raceType, heatNumber) {
+        if (raceType === "heat") return `Heat ${heatNumber}`;
+        if (raceType === "b-main") return "B Main";
+        if (raceType === "a-main") return "A Main";
+        return "Race";
+    }
+
+    _buildRaceTransition(room, raceRecord, results, nextRace) {
+        room.raceTransition = {
+            previousRace: this._getRaceLabel(raceRecord.raceType, raceRecord.heatNumber),
+            previousResults: results,
+            nextRace: nextRace?.label ?? null,
+            nextRaceType: nextRace?.type ?? null,
+            nextHeatNumber: nextRace?.heatNumber ?? null,
+            nextLineup: nextRace?.entries ?? [],
+            readyPlayerIds: new Set(),
+            started: false,
+            final: !nextRace
+        };
+    }
+
+    _recordCompletedRaceAndPrepareNext(room) {
+        const event = room.season.currentEvent;
+        const raceRecord = event?.activeRace;
+        const raceState = raceRecord?.state;
+        if (!raceRecord || raceState?.status !== "completed") return false;
+
+        let results;
+        let nextRace = null;
+        try {
+            if (raceRecord.raceType === "heat") {
+                results = room.season.recordHeatRaceResults(
+                    raceRecord.heatNumber,
+                    raceState
+                );
+                if (raceRecord.heatNumber < 4) {
+                    const heatNumber = raceRecord.heatNumber + 1;
+                    const lineup = event.heatLineups.find((heat) => heat.heatNumber === heatNumber);
+                    nextRace = { type: "heat", heatNumber, label: `Heat ${heatNumber}`, entries: lineup?.entries ?? [] };
+                } else {
+                    const lineup = room.season.createBMainLineup();
+                    nextRace = { type: "b-main", label: "B Main", entries: lineup.entries };
+                }
+            } else if (raceRecord.raceType === "b-main") {
+                results = room.season.recordBMainRaceResults(raceState);
+                const lineup = room.season.createAMainLineup();
+                nextRace = { type: "a-main", label: "A Main", entries: lineup.entries };
+            } else if (raceRecord.raceType === "a-main") {
+                results = room.season.recordAMainRaceResults(raceState);
+                // Award this event's championship points before showing the
+                // season standings lobby (or final championship screen).
+                room.season.recordEventStandings();
+            } else {
+                return false;
+            }
+        } catch (error) {
+            throw new RoomError("RACE_RESULTS_RECORD_FAILED", error.message, 409);
+        }
+
+        this._buildRaceTransition(room, raceRecord, results, nextRace);
+        return true;
+    }
+
+    _startNextRaceWhenEveryoneIsReadyAndOnline(room) {
+        const transition = room.raceTransition;
+        if (!transition || transition.started || transition.final ||
+            !room.players.every((player) => transition.readyPlayerIds.has(player.id) && this._isPlayerOnline(player))) {
+            return false;
+        }
+
+        try {
+            if (transition.nextRaceType === "heat") {
+                room.season.startHeatRace(transition.nextHeatNumber);
+            } else if (transition.nextRaceType === "b-main") {
+                room.season.startBMainRace();
+            } else if (transition.nextRaceType === "a-main") {
+                room.season.startAMainRace();
+            } else {
+                return false;
+            }
+            transition.started = true;
+            room.raceWheelEvents = [];
+            return true;
+        } catch (error) {
+            throw new RoomError("NEXT_RACE_START_FAILED", error.message, 409);
+        }
+    }
+
+    _startNextEventWhenEveryoneIsReadyAndOnline(room) {
+        const season = room.season;
+        if (!season || season.isComplete || !season.currentEvent ||
+            season.currentEvent.phase !== "complete" ||
+            season.currentEventNumber >= season.eventCount) {
+            return false;
+        }
+
+        const everyoneReady = season.players.every((player) =>
+            season.readyPlayerIds.includes(player.id)
+        );
+        const everyoneOnline = room.players.every((player) =>
+            this._isPlayerOnline(player)
+        );
+        if (!everyoneReady || !everyoneOnline) return false;
+
+        try {
+            season.startNextEvent();
+            room.raceTransition = null;
+            room.heatPreparation = null;
+            room.raceWheelEvents = [];
+            room.qualifyingWheelEvents = [];
+            return true;
+        } catch (error) {
+            throw new RoomError("NEXT_EVENT_START_FAILED", error.message, 409);
+        }
+    }
+
+    setSeasonEventReady(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const season = room.season;
+        if (!season || season.isComplete || !season.currentEvent ||
+            season.currentEvent.phase !== "complete" ||
+            season.currentEventNumber >= season.eventCount) {
+            throw new RoomError("SEASON_LOBBY_NOT_ACTIVE", "There is no next event waiting for readiness.", 409);
+        }
+        if (!season.readyPlayerIds.includes(player.id)) {
+            season.readyPlayerIds.push(player.id);
+        }
+        this._startNextEventWhenEveryoneIsReadyAndOnline(room);
+        return this.createRoomSnapshot(room, player.id);
+    }
+
+    setRaceTransitionReady(rawCode, playerId) {
+        const room = this.requireRoom(rawCode);
+        const player = this.requirePlayer(room, playerId);
+        const transition = room.raceTransition;
+        if (!transition || transition.started || transition.final) {
+            throw new RoomError("RACE_TRANSITION_NOT_ACTIVE", "There is no upcoming race waiting for readiness.", 409);
+        }
+        transition.readyPlayerIds.add(player.id);
+        this._startNextRaceWhenEveryoneIsReadyAndOnline(room);
+        return this.createRoomSnapshot(room, player.id);
+    }
+
     /*
      * Start a movement turn for the active heat or main-race car.
      *
@@ -1630,7 +1777,9 @@ class RoomManager {
 
         try {
             room.season.applyActiveRaceTurn();
+            this._recordCompletedRaceAndPrepareNext(room);
         } catch (error) {
+            if (error instanceof RoomError) throw error;
             throw new RoomError("RACE_TURN_APPLY_FAILED", error.message, 409);
         }
 
@@ -2283,6 +2432,7 @@ class RoomManager {
 
         // Any authenticated room request acts as a presence heartbeat.
         player.lastSeenAt = Date.now();
+        this._startNextRaceWhenEveryoneIsReadyAndOnline(room);
         return player;
     }
 
@@ -2372,6 +2522,7 @@ class RoomManager {
                     position: standing.championshipPosition,
                     carNumber: car?.number ?? null,
                     driverName: car?.driverName ?? "Unknown driver",
+                    ownerName: playerNames.get(season.carOwners[standing.carId]) ?? "Unowned",
                     points: standing.points
                 };
             });
@@ -2385,6 +2536,19 @@ class RoomManager {
                 points: standing.points,
                 carCount: standing.carCount
             }));
+
+        snapshot.seasonLobby = {
+            active: Boolean(season.currentEvent && season.currentEvent.phase === "complete"),
+            final: Boolean(season.isComplete),
+            eventNumber: season.currentEventNumber,
+            eventCount: season.eventCount,
+            players: room.players.map((player) => ({
+                name: player.name,
+                isYou: player.id === viewerPlayerId,
+                ready: season.readyPlayerIds.includes(player.id),
+                online: this._isPlayerOnline(player)
+            }))
+        };
 
         const totalPicks =
             Math.floor(
@@ -2717,15 +2881,52 @@ class RoomManager {
                 }
                 : null;
 
+            const transition = room.raceTransition;
+            const publicRaceEntry = (entry, position) => {
+                const car = carsById.get(entry.carId);
+                const ownerId = season.carOwners[entry.carId];
+                return {
+                    position,
+                    carNumber: car?.number ?? null,
+                    driverName: car?.driverName ?? null,
+                    playerName: playerNames.get(ownerId) ?? null,
+                    isYours: ownerId === viewerPlayerId
+                };
+            };
+            const raceTransition = transition ? {
+                active: !transition.started,
+                final: transition.final,
+                previousRace: transition.previousRace,
+                previousResults: transition.previousResults.map((result) => ({
+                    ...publicRaceEntry({ carId: result.carId }, result.finishingPosition),
+                    status: result.statusAtFinish,
+                    dnf: result.statusAtFinish !== "finished"
+                })),
+                nextRace: transition.nextRace,
+                nextLineup: transition.nextLineup.map((entry, index) => publicRaceEntry(entry, entry.startingPosition ?? index + 1)),
+                players: room.players.map((player) => ({
+                    name: player.name,
+                    isYou: player.id === viewerPlayerId,
+                    ready: transition.readyPlayerIds.has(player.id),
+                    online: this._isPlayerOnline(player)
+                }))
+            } : null;
+
             snapshot.event = {
                 eventNumber: currentEvent.eventNumber,
                 phase: currentEvent.phase,
                 trackCondition: currentEvent.trackCondition,
                 activeRace,
+                raceTransition,
                 heatPreparation: room.heatPreparation && !room.heatPreparation.started
                     ? {
                         active: true,
                         allPlayersReady: this._areAllHeatPlayersReadyAndOnline(room),
+                        nextLineup: (currentEvent.heatLineups?.find((heat) => heat.heatNumber === 1)?.entries ?? []).map((entry, index) => {
+                            const car = carsById.get(entry.carId);
+                            const ownerId = season.carOwners[entry.carId];
+                            return { position: entry.startingPosition ?? index + 1, carNumber: car?.number ?? null, driverName: car?.driverName ?? null, playerName: playerNames.get(ownerId) ?? null, isYours: ownerId === viewerPlayerId };
+                        }),
                         players: room.players.map((player) => ({
                             name: player.name,
                             isYou: player.id === viewerPlayerId,

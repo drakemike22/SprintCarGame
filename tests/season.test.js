@@ -785,7 +785,7 @@ test("creating heat lineups initializes separate heat results", () => {
     }
 });
 
-test("recording a heat result identifies its four eligible transfers", () => {
+test("recording a heat result identifies its five eligible transfers", () => {
     const { season, event } = startQualifyingSeason();
 
     completeQualifying(season, event);
@@ -807,7 +807,7 @@ test("recording a heat result identifies its four eligible transfers", () => {
         results
             .filter((result) => result.transferPosition !== null)
             .map((result) => result.carId),
-        heat.entries.slice(0, 4).map((entry) => entry.carId)
+        heat.entries.slice(0, 5).map((entry) => entry.carId)
     );
 
     assert.deepEqual(
@@ -835,7 +835,7 @@ test("an out-for-event heat finisher cannot transfer directly or enter the B-mai
 
     assert.equal(results[1].eligibleToTransfer, false);
     assert.equal(results[1].transferPosition, null);
-    assert.equal(results[4].transferPosition, 4);
+    assert.equal(results[5].transferPosition, 5);
 
     // The B-main lineup should contain eligible non-transfers from
     // all four heats, not cars that are out for the event.
@@ -935,7 +935,8 @@ test("the B-main results award up to four transfer spots", () => {
 test("the A-main combines eligible heat and B-main transfers", () => {
     const { season, event } = prepareSeasonWithHeatResults();
 
-    season.createBMainLineup();
+    const bMain = season.createBMainLineup();
+    assert.equal(bMain.entries.length, 12);
 
     const bMainFinishers = event.bMainLineup.entries.map((entry) => ({
         carId: entry.carId,
@@ -946,13 +947,13 @@ test("the A-main combines eligible heat and B-main transfers", () => {
 
     const aMain = season.createAMainLineup();
 
-    assert.equal(aMain.entries.length, 20);
+    assert.equal(aMain.entries.length, 24);
 
     const aMainCarIds = aMain.entries.map((entry) => entry.carId);
 
-    assert.equal(new Set(aMainCarIds).size, 20);
+    assert.equal(new Set(aMainCarIds).size, 24);
 
-    // The A-main should include the sixteen direct heat transfers.
+    // The A-main should include the twenty direct heat transfers.
     const heatTransfers = event.heatResults.flatMap((heat) =>
         heat.results
             .filter((result) => result.transferPosition !== null)
@@ -984,7 +985,7 @@ test("an out-for-event B-main finisher cannot transfer to the A-main", () => {
     const aMainCarIds = aMain.entries.map((entry) => entry.carId);
 
     assert.equal(aMainCarIds.includes(finishers[0].carId), false);
-    assert.equal(aMain.entries.length, 20);
+    assert.equal(aMain.entries.length, 24);
 });
 
 
@@ -1041,7 +1042,7 @@ test("the A-main lineup contains no duplicate cars", () => {
     const carIds = aMain.entries.map((entry) => entry.carId);
 
     assert.equal(carIds.length, new Set(carIds).size);
-    assert.equal(aMain.entries.length, 20);
+    assert.equal(aMain.entries.length, 24);
     assert.equal(event.aMainLineup, aMain);
 });
 
@@ -1071,7 +1072,7 @@ test("A-main results record every car in official finishing order", () => {
 
     const results = season.recordAMainResults(finishers);
 
-    assert.equal(results.length, 20);
+    assert.equal(results.length, 24);
     assert.equal(event.aMainResults, results);
 
     assert.deepEqual(
@@ -1081,7 +1082,38 @@ test("A-main results record every car in official finishing order", () => {
 
     assert.deepEqual(
         results.map((result) => result.finishingPosition),
-        Array.from({ length: 20 }, (_, index) => index + 1)
+        Array.from({ length: 24 }, (_, index) => index + 1)
+    );
+});
+
+test("the eight B-main non-transfers receive event positions 25 through 32", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+    const bMain = season.createBMainLineup();
+    const bMainFinishers = bMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    }));
+    season.recordBMainResults(bMainFinishers);
+
+    const aMain = season.createAMainLineup();
+    assert.equal(aMain.entries.length, 24);
+    season.recordAMainResults(aMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    })));
+
+    const standings = season.calculateEventStandings();
+    assert.equal(standings.length, 32);
+    assert.deepEqual(
+        standings.slice(24).map((standing) => standing.finishingPosition),
+        [25, 26, 27, 28, 29, 30, 31, 32]
+    );
+    const bMainNonTransfers = event.bMainResults
+        .filter((result) => result.transferPosition === null)
+        .map((result) => result.carId);
+    assert.deepEqual(
+        standings.slice(24).map((standing) => standing.carId),
+        bMainNonTransfers
     );
 });
 

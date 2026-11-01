@@ -417,6 +417,34 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
+        // POST /api/rooms/:code/season/ready — confirm readiness for the next event.
+        const seasonReadyMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/season\/ready$/
+        );
+        if (method === "POST" && seasonReadyMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.setSeasonEventReady(
+                decodeRoomCode(seasonReadyMatch[1]),
+                playerId
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
+
+        // POST /api/rooms/:code/race/ready — confirm readiness for the next heat/main.
+        const raceReadyMatch = pathname.match(
+            /^\/api\/rooms\/([^/]+)\/race\/ready$/
+        );
+        if (method === "POST" && raceReadyMatch) {
+            const playerId = getPlayerCredential(request);
+            const room = roomManager.setRaceTransitionReady(
+                decodeRoomCode(raceReadyMatch[1]),
+                playerId
+            );
+            sendJson(response, 200, { room });
+            return true;
+        }
+
         // POST /api/rooms/:code/race/turn/start
         // Start the current heat or main-race car's movement turn.
         const raceTurnStartMatch = pathname.match(

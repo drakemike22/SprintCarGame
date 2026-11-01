@@ -23,7 +23,8 @@
 const { Draft } = require("./draft");
 const { QualifyingSession } = require("./qualifying-session");
 const {
-    createRaceResults
+    createRaceResults,
+    B_MAIN_TRANSFER_LIMIT
 } = require("../rules/race-results");
 const { createQualifyingTurn } = require("./qualifying-turn");
 const {
@@ -1437,7 +1438,7 @@ class Season {
             );
         }
 
-        const results = createRaceResults(finishers);
+        const results = createRaceResults(finishers, B_MAIN_TRANSFER_LIMIT);
 
         this.currentEvent.bMainResults = results;
         this.currentEvent.phase = "a-main";
