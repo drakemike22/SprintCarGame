@@ -1,4 +1,4 @@
-﻿
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,6 +11,14 @@
     <meta name="theme-color" content="#171916">
     <title>Sprint Car Showdown</title>
     <link rel="stylesheet" href="/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        window.SPRINT_SUPABASE_CONFIG = {
+            url: "https://ubdidvqsxvrhloroyhsa.supabase.co",
+            publishableKey: "sb_publishable_id5C2Rpwp2boB_ioHPPjAQ_wzsAaNr0"
+        };
+    </script>
+    <script src="/js/account.js" defer></script>
     <script src="/js/app.js" defer></script>
 </head>
 <body>
@@ -749,7 +757,11 @@
                     You'll be able to select a game to return to its lobby
                     or continue its season.
                 </p>
-                <span class="coming-soon">MULTIPLE GAMES - COMING SOON</span>
+                <div class="account-panel">
+                    <p id="my-games-account-status" role="status">Sign in to see the games associated with your account.</p>
+                    <button class="primary-button" type="button" data-account-open>Go to Profile / Sign In</button>
+                    <div id="my-games-list" class="my-games-list" aria-live="polite"></div>
+                </div>
             </section>
 
             <!-- Tutorial content will be added with real gameplay examples. -->
@@ -775,7 +787,41 @@
                     Your account information, profile picture, past finishes,
                     and championship history will live here.
                 </p>
-                <span class="coming-soon">PLAYER PROFILES - COMING SOON</span>
+                <div class="account-panel" id="account-panel">
+                    <div id="account-signed-out">
+                        <h2>Player Account</h2>
+                        <p>Create an account or sign in to start setting up your player profile.</p>
+                        <div class="account-form-grid">
+                            <form id="account-signup-form">
+                                <h3>Create account</h3>
+                                <label for="account-signup-email">EMAIL</label>
+                                <input id="account-signup-email" type="email" autocomplete="email" required maxlength="254">
+                                <label for="account-signup-password">PASSWORD</label>
+                                <input id="account-signup-password" type="password" autocomplete="new-password" required minlength="8">
+                                <button class="primary-button" type="submit">Create Account</button>
+                            </form>
+                            <form id="account-login-form">
+                                <h3>Sign in</h3>
+                                <label for="account-login-email">EMAIL</label>
+                                <input id="account-login-email" type="email" autocomplete="email" required maxlength="254">
+                                <label for="account-login-password">PASSWORD</label>
+                                <input id="account-login-password" type="password" autocomplete="current-password" required>
+                                <button class="primary-button" type="submit">Sign In</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div id="account-signed-in" hidden>
+                        <h2>Account Details</h2>
+                        <p id="account-email"></p>
+                        <form id="account-profile-form">
+                            <label for="account-display-name">PLAYER DISPLAY NAME</label>
+                            <input id="account-display-name" type="text" maxlength="40" required placeholder="Enter your player name">
+                            <button class="primary-button" type="submit">Save Profile</button>
+                        </form>
+                        <button class="secondary-button" id="account-signout" type="button">Sign Out</button>
+                    </div>
+                    <p id="account-feedback" class="account-feedback" role="status" aria-live="polite"></p>
+                </div>
             </section>
         </main>
 

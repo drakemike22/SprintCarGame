@@ -12,8 +12,8 @@
  * - Validate room membership and host-only actions.
  * - Require every player to be ready before the host starts.
  *
- * Rooms are held in memory. Restarting the server clears all rooms.
- * Persistence and reconnect support will be separate features.
+ * Room state can be exported/restored through the persistence adapter.
+ * The default local server still uses memory until a durable store is configured.
  */
 
 "use strict";
@@ -95,7 +95,7 @@ class RoomManager {
      * Optional settings:
      * createRoom("Host", { maxPlayers: 3, seasonEvents: 8 })
      */
-    createRoom(rawName, rawSettings = {}) {
+    createRoom(rawName, rawSettings = {}, accountUserId = null) {
         const name = this.validateDriverName(rawName);
         const settings = this.validateRoomSettings(rawSettings);
 
@@ -140,7 +140,8 @@ class RoomManager {
                     id: playerId,
                     name,
                     ready: false,
-                    lastSeenAt: Date.now()
+                    lastSeenAt: Date.now(),
+                    accountUserId: typeof accountUserId === "string" ? accountUserId : null
                 }
             ],
             pendingIncident: null,
@@ -168,7 +169,7 @@ class RoomManager {
      * Join an existing waiting room.
      * The room's configured player limit is authoritative.
      */
-    joinRoom(rawCode, rawName) {
+    joinRoom(rawCode, rawName, accountUserId = null) {
         const code = this.normalizeRoomCode(rawCode);
         const name = this.validateDriverName(rawName);
         const room = this.rooms.get(code);
@@ -197,19 +198,40 @@ class RoomManager {
             );
         }
 
+        if (accountUserId && room.players.some((player) => player.accountUserId === accountUserId)) {
+            throw new RoomError("ACCOUNT_ALREADY_IN_ROOM", "This account already has a player in that game.", 409);
+        }
+
         const playerId = crypto.randomUUID();
 
         room.players.push({
             id: playerId,
             name,
             ready: false,
-            lastSeenAt: Date.now()
+            lastSeenAt: Date.now(),
+            accountUserId: typeof accountUserId === "string" ? accountUserId : null
         });
 
         return {
             playerId,
             room: this.createRoomSnapshot(room, playerId)
         };
+    }
+
+    /** Restore the private room credential for the signed-in account that joined it. */
+    rejoinRoom(rawCode, accountUserId) {
+        const room = this.requireRoom(rawCode);
+        if (typeof accountUserId !== "string" || !accountUserId) {
+            throw new RoomError("ACCOUNT_REQUIRED", "A signed-in account is required to rejoin.", 401);
+        }
+        const player = room.players.find((entry) => entry.accountUserId === accountUserId);
+        if (!player) {
+            throw new RoomError("ACCOUNT_NOT_IN_ROOM", "This account is not a member of that game.", 403);
+        }
+        player.lastSeenAt = Date.now();
+        this._startHeatWhenEveryoneIsReadyAndOnline(room);
+        this._startNextEventWhenEveryoneIsReadyAndOnline(room);
+        return { playerId: player.id, room: this.createRoomSnapshot(room, player.id) };
     }
 
     /*

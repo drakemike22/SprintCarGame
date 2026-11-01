@@ -1397,14 +1397,26 @@ document.addEventListener("DOMContentLoaded", () => {
         let response;
 
         try {
+            const account = window.SprintCarAccount;
+            if (!account || typeof account.getAccessToken !== "function") {
+                throw new Error("Account services are unavailable. Refresh the page and try again.");
+            }
+            const accessToken = await account.getAccessToken();
             response = await fetch(url, {
                 ...options,
                 headers: {
                     "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
                     ...(options.headers || {})
                 }
             });
-        } catch {
+        } catch (error) {
+            if (error instanceof Error && error.message.startsWith("You must create an account")) {
+                throw error;
+            }
+            if (error instanceof Error && error.message.startsWith("Account services are unavailable")) {
+                throw error;
+            }
             throw new Error(
                 "Could not reach the game server. Make sure it is running."
             );
@@ -3367,6 +3379,27 @@ document.addEventListener("DOMContentLoaded", () => {
             stopLobbyPolling();
         }
     });
+
+    // My Games uses the signed-in account to recover the private room credential.
+    window.SprintCarGame = {
+        async rejoin(roomCode) {
+            const account = window.SprintCarAccount;
+            if (!account) throw new Error("Please sign in before returning to a game.");
+            const token = await account.getAccessToken();
+            const response = await fetch(`/api/rooms/${encodeURIComponent(roomCode)}/rejoin`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                body: "{}"
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || "Unable to return to that game.");
+            const you = data.room.players.find((player) => player.isYou);
+            saveSession(data.playerId, data.room, you ? you.name : "Player");
+            renderRoom(data.room);
+            navigateToPage(data.room.status !== "started" ? "lobby" : data.room.event ? "race" : "draft");
+            startLobbyPolling();
+        }
+    };
 
     /*
      * Restore the current tab's room session after a page reload.

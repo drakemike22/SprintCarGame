@@ -742,3 +742,79 @@ A car that wrecked in a later round was being shown behind cars that had DNF'd e
 - After the final event, the season lobby becomes the final championship page. It shows Congratulations, the winning car/driver/owner, the winning owner, and both complete final points tables.
 - Existing scoring/tie-break rules are reused; no points are reset between events.
 - Validation: full Node test suite and JavaScript syntax checks are recorded in the handoff for this update. Browser/multiplayer visual testing has not been performed.
+
+
+## 2026-10-31 — Persistence migration foundation
+
+- Added `src/server/persistence/room-state.js`, a versioned serializer/reviver for room state.
+- Preserves `Set` readiness collections and restores prototypes for Season, Player, Draft, qualifying models, and RaceCar.
+- Runtime callbacks are omitted; `Season.random` is restored to `Math.random`.
+- Added round-trip tests for rooms, Set state, and Season methods.
+- Validation: `npm test` — 564 passed, 0 failed.
+- Scope: serialization foundation only. No D1/Durable Object writes, Supabase auth, Cloudflare Worker adapter, or live deployment have been implemented yet.
+
+## 2026-11-01 Cloudflare migration foundation
+
+Added the first Cloudflare deployment/persistence scaffold in `src/cloudflare/`:
+- Worker entry point serves the existing `src/client` through the Workers Assets binding and provides `/api/health`.
+- `RoomDurableObject` validates and stores versioned RoomManager snapshots using Durable Object storage.
+- Added Wrangler configuration for Worker assets, the existing D1 database binding, and the Durable Object class/migration.
+- Added initial D1 SQL schema for player profiles, saved games, and saved-game membership. Supabase Auth remains the planned identity provider; passwords are not stored in D1.
+- Added regression tests for Durable Object health, snapshot save/restore after reconstruction, invalid-snapshot rejection without overwriting valid state, and unknown-route handling.
+
+Validation: `npm test` passes 568/568; `node --check` passes for both Cloudflare entry modules.
+
+Scope note: this is still migration scaffolding. Existing Node HTTP API routes have not yet been ported into the Worker; normal gameplay does not yet call the Durable Object or D1; Supabase Auth is not integrated; no Cloudflare deployment or browser multiplayer test has been performed. `wrangler.toml` intentionally contains a placeholder D1 database ID and must be filled from the Cloudflare dashboard before deployment. No secrets are included.
+
+
+## Cloudflare API migration milestone (2026-11-01)
+- Routed all `/api/*` requests from the Worker to a named Durable Object (`global-room-manager`).
+- Durable Object now invokes the existing `handleApiRequest` and `RoomManager` logic rather than exposing snapshot storage only.
+- Added serialized request queue and automatic snapshot persistence after API calls.
+- Added regression test creating a room through the Durable Object API, reconstructing the Durable Object, then retrieving the same room using its player credential.
+- Existing Node server behavior is preserved; `handleApiRequest`, `RoomManager`, and `RoomError` are exported for reuse.
+- Local test suite: 569 passed, 0 failed.
+- Not yet deployed or tested on Cloudflare. D1 is bound but not used by gameplay yet; Supabase Auth is not connected. Current design uses one Durable Object for the entire room manager as a correctness-first migration step.
+
+## 2026-11-01 — Supabase identity validation and profile API
+- Added Worker-side Supabase JWT verification using published JWKS and Web Crypto; validates signature, issuer, authenticated audience, expiry/not-before, and subject format.
+- Added authenticated `GET`/`PUT /api/account/profile` endpoints backed by D1 `player_profiles`.
+- Profile ownership is derived from the verified JWT subject; clients cannot choose another user's profile ID.
+- No Supabase secret key is required by these endpoints.
+- Browser signup/login UI and saved-game membership linkage are not yet implemented.
+
+## Account requirement for multiplayer (November 1, 2026)
+
+- Supabase account session is now required by the browser client for all game API requests.
+- Cloudflare Worker verifies the JWT server-side before forwarding any game API request to the Durable Object; guest create/join and other unauthenticated gameplay requests return HTTP 401.
+- Worker injects the verified Supabase user ID as `X-Account-Id` after removing trust from any client-supplied value (the header is overwritten).
+- Tests cover unauthenticated room creation/join rejection, invalid token rejection, and trusted identity forwarding.
+- The standalone Node development server is not yet account-gated; keep it local only. Production deployment must use the Cloudflare Worker entry point.
+
+
+---
+
+# DEVELOPMENT HANDOFF UPDATE - 2026-11-01
+
+## Account-linked My Games milestone
+
+Implemented in this working copy:
+- Room host and joining player records now retain the verified Supabase account subject privately in the Durable Object room snapshot.
+- A signed-in account cannot create a second player seat in the same room.
+- Added an account-authorized rejoin endpoint that restores the existing player's private room credential without exposing it in room snapshots.
+- Cloudflare Durable Object indexes room hosts and members in D1 `saved_games` / `saved_game_players` tables after room creation and joining.
+- Added authenticated `GET /api/account/games`, returning only the current user's game memberships.
+- Replaced the My Games placeholder with saved-game cards and a Return to Game action.
+- Added regression tests for account membership, duplicate-seat prevention, rejoin authorization, D1 indexing, and account-scoped game listing.
+
+## Verification
+- Focused account / Durable Object / room tests passed: 81 tests.
+- Full regression suite is to be recorded after the final packaging run.
+- No Cloudflare deployment or live Supabase/D1 integration test has been performed.
+
+## Deployment prerequisites still outstanding
+- Replace the placeholder D1 database ID in `wrangler.toml`.
+- Apply `migrations/0001_initial.sql` to the remote D1 database.
+- Verify the Durable Object binding and migration in the target Cloudflare account.
+- Deploy and perform a real two-account test: create, join, close browser, sign in again, view My Games, and rejoin from a fresh browser session.
+- Existing rooms created before account membership was added do not automatically gain account associations.

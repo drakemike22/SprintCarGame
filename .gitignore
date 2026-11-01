@@ -27,3 +27,17 @@ coverage/
 # Build output — generated files, not source code
 dist/
 build/
+
+# Cloudflare local development data
+.wrangler/
+
+# Local backup files
+*.bak
+*.backup
+
+# Named local backup files
+*.before-*
+*.track-backup-*
+
+# Timestamped backup files
+*.backup-*

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Sprint Car Game HTTP Server
  * ---------------------------
  * Serves the browser client and exposes the multiplayer room API.
@@ -16,7 +16,7 @@ const path = require("node:path");
 
 const { RoomManager, RoomError } = require("./rooms");
 
-const CLIENT_ROOT = path.resolve(__dirname, "../client");
+const CLIENT_ROOT = path.resolve(typeof __dirname !== "undefined" ? __dirname : process.cwd(), typeof __dirname !== "undefined" ? "../client" : "src/client");
 const PORT = Number(process.env.PORT) || 3000;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 
@@ -200,7 +200,7 @@ async function handleApiRequest(request, response, url, roomManager) {
         const method = request.method;
         const pathname = url.pathname;
 
-        // POST /api/rooms — create a room and register the host.
+        // POST /api/rooms â€” create a room and register the host.
         //
         // The room manager validates the optional settings. When omitted,
         // its defaults are four players and five season events.
@@ -210,7 +210,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             const result = roomManager.createRoom(body.name, {
                 maxPlayers: body.maxPlayers,
                 seasonEvents: body.seasonEvents
-            });
+            }, request.headers["x-account-id"] || null);
 
             sendJson(response, 201, {
                 playerId: result.playerId,
@@ -220,7 +220,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // POST /api/rooms/:code/join — join a waiting room.
+        // POST /api/rooms/:code/join â€” join a waiting room.
         const joinMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/join$/
         );
@@ -229,7 +229,8 @@ async function handleApiRequest(request, response, url, roomManager) {
             const body = await readJsonBody(request);
             const result = roomManager.joinRoom(
                 decodeRoomCode(joinMatch[1]),
-                body.name
+                body.name,
+                request.headers["x-account-id"] || null
             );
 
             sendJson(response, 200, {
@@ -240,7 +241,16 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // GET /api/rooms/:code — fetch the member's current room view.
+        // POST /api/rooms/:code/rejoin â€” restore this account's room credential.
+        const rejoinMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/rejoin$/);
+        if (method === "POST" && rejoinMatch) {
+            const accountUserId = request.headers["x-account-id"];
+            const result = roomManager.rejoinRoom(decodeRoomCode(rejoinMatch[1]), accountUserId);
+            sendJson(response, 200, result);
+            return true;
+        }
+
+        // GET /api/rooms/:code â€” fetch the member's current room view.
         const roomMatch = pathname.match(/^\/api\/rooms\/([^/]+)$/);
 
         if (method === "GET" && roomMatch) {
@@ -384,7 +394,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // PUT /api/rooms/:code/ready — change this player's ready state.
+        // PUT /api/rooms/:code/ready â€” change this player's ready state.
         const readyMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/ready$/
         );
@@ -402,7 +412,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // POST /api/rooms/:code/heats/ready — confirm readiness for Heat 1.
+        // POST /api/rooms/:code/heats/ready â€” confirm readiness for Heat 1.
         const heatReadyMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/heats\/ready$/
         );
@@ -417,7 +427,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
-        // POST /api/rooms/:code/season/ready — confirm readiness for the next event.
+        // POST /api/rooms/:code/season/ready â€” confirm readiness for the next event.
         const seasonReadyMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/season\/ready$/
         );
@@ -431,7 +441,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // POST /api/rooms/:code/race/ready — confirm readiness for the next heat/main.
+        // POST /api/rooms/:code/race/ready â€” confirm readiness for the next heat/main.
         const raceReadyMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/race\/ready$/
         );
@@ -463,7 +473,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // POST /api/rooms/:code/start — host-only start action.
+        // POST /api/rooms/:code/start â€” host-only start action.
         const startMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/start$/
         );
@@ -478,7 +488,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             sendJson(response, 200, { room });
             return true;
         }
-                // POST /api/rooms/:code/draft/roll — submit initial draft roll.
+                // POST /api/rooms/:code/draft/roll â€” submit initial draft roll.
         const draftRollMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/draft\/roll$/
         );
@@ -497,7 +507,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // POST /api/rooms/:code/draft/reroll — break a tied draft roll.
+        // POST /api/rooms/:code/draft/reroll â€” break a tied draft roll.
         const draftRerollMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/draft\/reroll$/
         );
@@ -516,7 +526,7 @@ async function handleApiRequest(request, response, url, roomManager) {
             return true;
         }
 
-        // POST /api/rooms/:code/draft/pick — select a car by number.
+        // POST /api/rooms/:code/draft/pick â€” select a car by number.
         const draftPickMatch = pathname.match(
             /^\/api\/rooms\/([^/]+)\/draft\/pick$/
         );
@@ -869,5 +879,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-    createServer
+    createServer,
+    handleApiRequest,
+    RoomManager,
+    RoomError
 };

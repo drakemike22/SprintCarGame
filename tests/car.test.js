@@ -11,10 +11,10 @@ const assert = require("node:assert/strict");
 
 const { Car } = require("../src/game/data/car.js");
 
-// Our first permanent car definition: Rico Abreu.
+// Sample permanent car definition: Cody McAllister.
 const ricoAbreuData = {
     id: "rico-abreu",
-    driverName: "Rico Abreu",
+    driverName: "Cody McAllister",
     number: "24",
     autoMovement: 8,
     bonusMovement: 4
@@ -24,7 +24,7 @@ test("a valid car stores all permanent information", () => {
     const car = new Car(ricoAbreuData);
 
     assert.equal(car.id, "rico-abreu");
-    assert.equal(car.driverName, "Rico Abreu");
+    assert.equal(car.driverName, "Cody McAllister");
     assert.equal(car.number, "24");
     assert.equal(car.autoMovement, 8);
     assert.equal(car.bonusMovement, 4);

@@ -1806,3 +1806,34 @@ test("final event season lobby is marked complete and does not offer next-event 
         "SEASON_LOBBY_NOT_ACTIVE"
     );
 });
+
+test("account identity is stored privately and can restore a room credential", () => {
+    const manager = new RoomManager();
+    const accountId = "account-host-123";
+    const created = manager.createRoom("Account Host", {}, accountId);
+    const rejoined = manager.rejoinRoom(created.room.code, accountId);
+
+    assert.equal(rejoined.playerId, created.playerId);
+    assert.equal(rejoined.room.players[0].isYou, true);
+    assert.equal(JSON.stringify(created.room).includes(accountId), false);
+});
+
+test("an account cannot join the same room twice", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host", {}, "account-1");
+
+    expectRoomError(
+        () => manager.joinRoom(host.room.code, "Second Seat", "account-1"),
+        "ACCOUNT_ALREADY_IN_ROOM"
+    );
+});
+
+test("an account cannot rejoin a room it never joined", () => {
+    const manager = new RoomManager();
+    const host = manager.createRoom("Host", {}, "account-1");
+
+    expectRoomError(
+        () => manager.rejoinRoom(host.room.code, "account-2"),
+        "ACCOUNT_NOT_IN_ROOM"
+    );
+});
