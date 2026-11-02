@@ -2871,10 +2871,10 @@ class RoomManager {
                             raceState.raceCars.map((raceCar) => [raceCar.carId, raceCar])
                         );
                         const finishedIds = raceState.finishOrder ?? [];
-                        const runningIds = (
-                            raceState.round?.order ??
-                            getTurnOrder(raceState.raceCars).map((raceCar) => raceCar.carId)
-                        ).filter((carId) => carsByIdForRace.get(carId)?.status === "running");
+                        // The round order is fixed for turn-taking, but live
+                        // standings must reflect each car's latest track progress.
+                        const runningIds = getTurnOrder(raceState.raceCars)
+                            .map((raceCar) => raceCar.carId);
                         const loggedDnfIds = raceState.dnfOrder ?? [];
                         const dnfIds = [
                             ...loggedDnfIds,

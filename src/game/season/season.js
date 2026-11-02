@@ -876,7 +876,7 @@ class Season {
 
     /**
      * Starts one of the four heat races.
-     * Each heat is a three-lap race.
+     * Each heat is a two-lap race.
      */
     startHeatRace(heatNumber) {
         if (!this.currentEvent) {

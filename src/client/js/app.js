@@ -394,11 +394,26 @@ document.addEventListener("DOMContentLoaded", () => {
             ? String(displayedMovement.laneChangesRemaining)
             : "—";
         const distanceLabel = summaryDistance?.previousElementSibling;
-        if (distanceLabel) distanceLabel.textContent = "Position";
-        const activeRacePosition = activeRacePreview?.position ?? currentCar?.position ?? raceCar?.position;
-        if (summaryDistance) summaryDistance.textContent = Number.isInteger(activeRacePosition?.section) && Number.isInteger(activeRacePosition?.lane)
-            ? `Section ${activeRacePosition.section}, Lane ${activeRacePosition.lane}`
-            : "—";
+        if (distanceLabel) distanceLabel.textContent = "Race Position";
+        const activeRaceStanding = race?.standings?.find((standing) =>
+            String(standing.carNumber) === String(currentCar?.carNumber ?? raceCar?.carNumber)
+        );
+        const standingPosition = activeRaceStanding?.position;
+        const standingSuffix = standingPosition === 1
+            ? "st"
+            : standingPosition === 2
+                ? "nd"
+                : standingPosition === 3
+                    ? "rd"
+                    : "th";
+        if (summaryDistance) {
+            summaryDistance.textContent = activeRaceStanding?.status === "out-for-race" ||
+                activeRaceStanding?.status === "out-for-event"
+                ? "DNF"
+                : Number.isInteger(standingPosition) && standingPosition > 0
+                    ? `${standingPosition}${standingSuffix} Place`
+                    : "—";
+        }
 
         if (turn?.dice) {
             if (qualifyingDiceValues.movement) qualifyingDiceValues.movement.textContent = String(turn.dice.movement ?? "—");
@@ -2616,7 +2631,16 @@ document.addEventListener("DOMContentLoaded", () => {
             [lapStanding, race, currentCar],
             ["completedLaps", "lapsCompleted"]
         );
-        const totalLaps = readNumber(
+        // Use the official event format for the displayed lap target.
+        // This prevents an older/stale race snapshot from showing the
+        // previous three-lap setting for heats or the B-Main.
+        const lapsByRaceType = {
+            heat: 2,
+            "b-main": 2,
+            "a-main": 4
+        };
+        const configuredLapTarget = lapsByRaceType[race?.raceType];
+        const totalLaps = configuredLapTarget ?? readNumber(
             [race, currentCar, event],
             ["lapsToComplete", "totalLaps", "lapsToRun", "requiredLaps", "raceLaps", "lapLimit", "lapCount", "numberOfLaps"]
         );

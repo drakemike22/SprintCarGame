@@ -1803,6 +1803,72 @@ test("race transition readiness waits for every online player", () => {
 });
 
 
+test("active race standings rank running cars by their latest track positions", () => {
+    const { manager, host, code } = createQualifyingRoom();
+    const room = manager.rooms.get(code);
+    const [carA, carB, carC] = room.season.cars;
+
+    room.season.currentEvent.activeRace = {
+        raceType: "heat",
+        heatNumber: 1,
+        lapsToComplete: 2,
+        state: {
+            status: "running",
+            yellowFlag: false,
+            // Turn order intentionally differs from the live track order.
+            round: {
+                order: [carA.id, carB.id],
+                currentIndex: 0,
+                completedCarIds: [],
+                skippedCarIds: [],
+                status: "in-progress",
+                endedBy: null
+            },
+            finishOrder: [],
+            dnfOrder: [],
+            raceCars: [
+                {
+                    carId: carA.id,
+                    position: { section: 8, lane: 1 },
+                    completedLaps: 1,
+                    distance: 8,
+                    status: "running",
+                    mechanicalDamage: "none"
+                },
+                {
+                    carId: carB.id,
+                    position: { section: 27, lane: 2 },
+                    completedLaps: 1,
+                    distance: 27,
+                    status: "running",
+                    mechanicalDamage: "none"
+                },
+                {
+                    carId: carC.id,
+                    position: { section: 29, lane: 1 },
+                    completedLaps: 0,
+                    distance: 0,
+                    status: "out-for-race",
+                    mechanicalDamage: "blown-tire"
+                }
+            ]
+        }
+    };
+
+    const snapshot = manager.getRoom(code, host.playerId);
+    const standings = snapshot.event.activeRace.standings;
+
+    assert.deepEqual(
+        standings.map((standing) => standing.carNumber),
+        [carB.number, carA.number, carC.number]
+    );
+    assert.deepEqual(
+        standings.map((standing) => standing.position),
+        [1, 2, 3]
+    );
+    assert.equal(standings[2].status, "out-for-race");
+});
+
 test("season standings snapshots show the owner beside every car", () => {
     const context = createQualifyingRoom();
     const { manager, host, code } = context;
