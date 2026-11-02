@@ -2744,6 +2744,35 @@ a {
     backdrop-filter: blur(5px);
 }
 
+.incident-cars {
+    display: grid;
+    gap: 10px;
+    max-height: min(42vh, 360px);
+    overflow-y: auto;
+    margin: 14px 0;
+    padding: 0;
+    list-style: none;
+}
+
+.incident-car-entry {
+    display: grid;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid rgb(255 255 255 / 12%);
+    border-radius: 10px;
+    background: rgb(255 255 255 / 4%);
+    line-height: 1.4;
+}
+
+.incident-car-original {
+    border-color: rgb(233 255 97 / 48%);
+}
+
+.incident-car-owner {
+    color: var(--muted);
+    font-size: .9em;
+}
+
 #incident-acknowledge {
     min-width: 104px;
     padding: 11px 24px;

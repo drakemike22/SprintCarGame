@@ -1592,6 +1592,7 @@ test("active race wreck follow-on spins are assigned to cars behind in the curre
     const currentIndex = raceRecord.state.round.currentIndex;
     const carId = raceRecord.state.round.order[currentIndex];
     const ownerId = room.season.carOwners[carId];
+    const observerPlayer = room.players.find((candidate) => candidate.id !== ownerId);
     const nextCarId = raceRecord.state.round.order[currentIndex + 1];
     const nextCar = raceRecord.state.raceCars.find(car => car.carId === nextCarId);
     // Place the next car five spaces behind the expected route endpoint.
@@ -1618,25 +1619,43 @@ test("active race wreck follow-on spins are assigned to cars behind in the curre
     const resolved = manager.resolveActiveRaceWreckWheel(code, ownerId);
     assert.equal(resolved.pendingIncident.wheelType, "wreck");
     assert.deepEqual(resolved.pendingIncident.followOnSpins, [1]);
+    assert.equal(resolved.pendingIncident.yellowFlag, true);
+    assert.equal(resolved.pendingIncident.carsInvolved.length, 2);
+    assert.equal(resolved.pendingIncident.carsInvolved[0].original, true);
+    assert.equal(resolved.pendingIncident.carsInvolved[0].yellowFlag, false);
+    assert.equal(resolved.pendingIncident.carsInvolved[1].original, false);
+    assert.equal(resolved.pendingIncident.carsInvolved[1].carNumber,
+        room.season.cars.find((car) => car.id === nextCarId).number);
+    assert.equal(resolved.pendingIncident.carsInvolved[1].outcome, "hit-wall-hard");
+    assert.equal(resolved.pendingIncident.carsInvolved[1].consequence, "out-for-race");
+    assert.equal(resolved.pendingIncident.carsInvolved[1].yellowFlag, true);
+    const observerSnapshot = manager.getRoom(code, observerPlayer.id);
+    assert.equal(observerSnapshot.pendingIncident.carsInvolved.length, 2);
+    assert.equal(observerSnapshot.pendingIncident.canAcknowledge, false);
     assert.equal(resolved.raceWheelEvents.length, 2);
     assert.equal(resolved.raceWheelEvents[0].followOn, true);
     assert.equal(resolved.raceWheelEvents[0].wheelType, "wreck");
+    assert.equal(resolved.raceWheelEvents[0].yellowFlag, true);
     assert.equal(resolved.raceWheelEvents[1].wheelType, "wreck");
+    assert.equal(resolved.raceWheelEvents[1].yellowFlag, true);
 
     const followOn = raceRecord.currentTurn.wreckResolution.followOnSpins;
     assert.equal(followOn.length, 1);
     assert.equal(followOn[0].carId, raceRecord.state.round.order[currentIndex + 1]);
     assert.equal(followOn[0].slot, 4);
+    assert.equal(raceRecord.currentTurn.wreckResolution.yellowFlag, true);
 
     manager.acknowledgeIncident(code, ownerId);
     const applied = manager.applyActiveRaceTurn(code, ownerId);
     assert.equal(raceRecord.currentTurn, null);
-    assert.equal(raceRecord.state.status, "running");
+    assert.equal(raceRecord.state.status, "yellow-flag");
+    assert.equal(raceRecord.state.yellowFlag, true);
     assert.equal(
         raceRecord.state.raceCars.find(car => car.carId === nextCarId).status,
         "out-for-race"
     );
-    assert.ok(applied.event.activeRace.nextCar);
+    assert.equal(applied.event.activeRace.yellowFlag, true);
+    assert.equal(applied.event.activeRace.nextCar, null);
 });
 
 test("active race snapshots expose car positions without internal IDs", () => {

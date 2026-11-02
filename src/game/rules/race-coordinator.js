@@ -543,7 +543,9 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
         }
     }
 
-    // Calculate each punishment on the staged copy.
+    // Calculate each punishment on the staged copy. A collected car's
+    // wreck-wheel result can also call the single yellow for this incident.
+    let incidentYellowFlag = turn.wreckResolution?.yellowFlag === true;
     for (const followOn of followOnSpins) {
         const followOnIndex = stagedRaceCars.findIndex(
             raceCar => raceCar.carId === followOn.carId
@@ -563,8 +565,9 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
             occupiedPositions
         });
 
-        // Only apply the punishment. Follow-on spins cannot create
-        // more follow-on spins or independently trigger a yellow flag.
+        // Collected cars cannot create chain reactions, but their wheel
+        // results count toward this wreck's single yellow-flag decision.
+        incidentYellowFlag = incidentYellowFlag || result.yellowFlag === true;
         stagedRaceCars[followOnIndex] = {
             ...followOnCar,
             position: { ...result.raceCar.position },
@@ -627,7 +630,7 @@ function applyCompletedRaceTurn(raceState, carId, turn) {
     // A wreck that raises a yellow flag ends the current round
     // immediately, so the next car cannot take a normal turn.
     
-    if (turn.wreckResolution?.yellowFlag === true) {
+    if (incidentYellowFlag) {
         // The original wreck car and all follow-on spinners go to the back
         // if they are still eligible to restart.
         const carsToBack = [

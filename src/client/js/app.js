@@ -52,6 +52,7 @@ document.addEventListener("DOMContentLoaded", () => {
     */
     const incidentDialog = document.getElementById("incident-dialog");
     const incidentCar = document.getElementById("incident-car");
+    const incidentCars = document.getElementById("incident-cars");
     const incidentWheel = document.getElementById("incident-wheel");
     const incidentOutcome = document.getElementById("incident-outcome");
     const incidentConsequence = document.getElementById("incident-consequence");
@@ -2452,14 +2453,47 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        incidentCar.textContent =
-            `Car #${incident.carNumber} — ${incident.driverName}`;
+        const carsInvolved = Array.isArray(incident.carsInvolved)
+            ? incident.carsInvolved
+            : [];
+        const isWreck = incident.wheelType === "wreck";
+        incidentCar.textContent = isWreck && carsInvolved.length > 0
+            ? `Wreck involving ${carsInvolved.length} ${carsInvolved.length === 1 ? "car" : "cars"}`
+            : `Car #${incident.carNumber} — ${incident.driverName}`;
 
         incidentWheel.textContent =
-            `${incident.wheelType === "mechanical" ? "Mechanical" : "Wreck"} wheel`;
+            `${isWreck ? "Wreck" : "Mechanical"} wheel`;
         incidentWheel.classList.toggle("incident-yellow-flag", Boolean(incident.yellowFlag));
         incidentWheel.dataset.yellowFlag = incident.yellowFlag ? "true" : "false";
+        if (incident.yellowFlag) {
+            incidentWheel.textContent += " — Yellow Flag";
+        }
 
+        incidentCars.replaceChildren();
+        carsInvolved.forEach((car) => {
+            const item = document.createElement("li");
+            item.className = car.original
+                ? "incident-car-entry incident-car-original"
+                : "incident-car-entry";
+
+            const heading = document.createElement("strong");
+            heading.textContent = `Car #${car.carNumber} — ${car.driverName}`;
+            const owner = document.createElement("span");
+            owner.className = "incident-car-owner";
+            owner.textContent = `Owner: ${car.playerName}`;
+            const details = document.createElement("span");
+            const outcome = car.outcome === "hit-wall-blown-tire"
+                ? "Hit Wall, Blown Tire"
+                : String(car.outcome ?? "unknown").replaceAll("-", " ");
+            const consequence = String(car.consequence ?? "none").replaceAll("-", " ");
+            details.textContent = `${car.original ? "Original wreck" : "Collected car"} · ${outcome} · ${consequence}${car.yellowFlag ? " · Yellow flag result" : ""}`;
+            item.append(heading, owner, details);
+            incidentCars.appendChild(item);
+        });
+
+        const showLegacyOutcome = !isWreck || carsInvolved.length === 0;
+        incidentOutcome.hidden = !showLegacyOutcome;
+        incidentConsequence.hidden = !showLegacyOutcome;
         incidentOutcome.textContent =
             `Outcome: ${incident.outcome === "hit-wall-blown-tire"
                 ? "Hit Wall, Blown Tire"
@@ -2467,9 +2501,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
         incidentConsequence.textContent =
             `Consequence: ${String(incident.consequence).replaceAll("-", " ")}`;
-        if (incident.yellowFlag) {
-            incidentWheel.textContent += " — Yellow Flag";
-        }
 
         incidentAcknowledge.hidden = !incident.canAcknowledge;
         incidentWaiting.hidden = Boolean(incident.canAcknowledge);

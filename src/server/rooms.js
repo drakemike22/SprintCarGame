@@ -1709,13 +1709,21 @@ class RoomManager {
             for (const followOn of eligibleFollowOns) {
                 const slot = crypto.randomInt(1, 11);
                 const followOnOutcome = resolveWreckWheel(slot);
-                resolvedFollowOns.push({ carId: followOn.carId, slot });
-
                 const followOnDriver = room.season.cars.find(
                     item => item.id === followOn.carId
                 );
                 const followOnOwnerId = room.season.carOwners[followOn.carId];
                 const followOnOwner = room.players.find(item => item.id === followOnOwnerId);
+                resolvedFollowOns.push({
+                    carId: followOn.carId,
+                    slot,
+                    outcome: followOnOutcome.type,
+                    consequence: followOnOutcome.consequence,
+                    yellowFlag: Boolean(followOnOutcome.yellowFlag),
+                    carNumber: followOnDriver?.number ?? String(followOn.carId),
+                    driverName: followOnDriver?.driverName ?? "Unknown driver",
+                    playerName: followOnOwner?.name ?? "Unowned"
+                });
                 room.raceWheelEvents ??= [];
                 room.raceWheelEvents.push({
                     id: crypto.randomUUID(),
@@ -1728,12 +1736,42 @@ class RoomManager {
                     wheelType: "wreck",
                     outcome: followOnOutcome.type,
                     consequence: followOnOutcome.consequence,
+                    yellowFlag: Boolean(followOnOutcome.yellowFlag),
                     createdAt: Date.now(),
                     followOn: true
                 });
             }
             resolvedTurn.wreckResolution.followOnSpins = resolvedFollowOns;
+            // A wreck is one incident: any involved car's yellow result
+            // raises one yellow for the whole incident.
+            resolvedTurn.wreckResolution.yellowFlag = Boolean(
+                resolvedTurn.wreckResolution.yellowFlag ||
+                resolvedFollowOns.some((entry) => entry.yellowFlag)
+            );
         }
+
+        const carsInvolved = wheelType === "wreck"
+            ? [
+                {
+                    carNumber: car?.number ?? String(carId),
+                    driverName: car?.driverName ?? "Unknown driver",
+                    playerName: player.name,
+                    outcome: outcome?.type ?? "unknown",
+                    consequence: outcome?.consequence ?? "none",
+                    yellowFlag: Boolean(outcome?.yellowFlag),
+                    original: true
+                },
+                ...(resolvedTurn.wreckResolution?.followOnSpins ?? []).map((entry) => ({
+                    carNumber: entry.carNumber,
+                    driverName: entry.driverName,
+                    playerName: entry.playerName,
+                    outcome: entry.outcome,
+                    consequence: entry.consequence,
+                    yellowFlag: Boolean(entry.yellowFlag),
+                    original: false
+                }))
+            ]
+            : [];
 
         room.pendingIncident = {
             ownerPlayerId: player.id,
@@ -1746,6 +1784,7 @@ class RoomManager {
             outcome: outcome?.type ?? "unknown",
             consequence: outcome?.consequence ?? "none",
             yellowFlag: wheelType === "wreck" && Boolean(resolvedTurn.wreckResolution?.yellowFlag),
+            carsInvolved,
             followOnSpins: wheelType === "wreck"
                 ? [...(outcome?.followOnSpins ?? [])]
                 : [],
@@ -1767,6 +1806,7 @@ class RoomManager {
             yellowFlag: wheelType === "wreck"
                 ? Boolean(resolvedTurn.wreckResolution?.yellowFlag)
                 : false,
+            carsInvolved,
             createdAt: Date.now()
         });
 
@@ -2523,6 +2563,15 @@ class RoomManager {
                     consequence: room.pendingIncident.consequence,
                     yellowFlag: room.pendingIncident.yellowFlag,
                     followOnSpins: room.pendingIncident.followOnSpins,
+                    carsInvolved: (room.pendingIncident.carsInvolved ?? []).map((entry) => ({
+                        carNumber: entry.carNumber,
+                        driverName: entry.driverName,
+                        playerName: entry.playerName,
+                        outcome: entry.outcome,
+                        consequence: entry.consequence,
+                        yellowFlag: Boolean(entry.yellowFlag),
+                        original: Boolean(entry.original)
+                    })),
                     canAcknowledge:
                         room.pendingIncident.ownerPlayerId === viewerPlayerId
                 }
