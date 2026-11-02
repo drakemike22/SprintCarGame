@@ -11,6 +11,7 @@ const assert = require("node:assert/strict");
 
 const { Season } = require("../src/game/season/season");
 const { CAR_STATUSES } = require("../src/game/rules/car-status");
+const { createRaceState } = require("../src/game/rules/race-coordinator");
 
 function makeRaceState(status = "completed") {
     return {
@@ -41,6 +42,56 @@ function makeSeasonWithEvent(currentEvent) {
     season.currentEvent = currentEvent;
     return season;
 }
+
+test("dry track reduces qualifying lane changes", (t) => {
+    const season = Object.create(Season.prototype);
+    const car = { id: "car-a", autoMovement: 4, bonusMovement: 2 };
+    season.cars = [car];
+    season.currentEvent = {
+        phase: "qualifying",
+        trackCondition: "Dry",
+        qualifyingSession: {
+            activeResult: {
+                carId: "car-a",
+                rollsCompleted: 0,
+                qualifyingPosition: { section: 29, lane: 2 },
+                movementTurn: null
+            }
+        }
+    };
+    t.mock.method(Math, "random", () => 0.5);
+
+    const turn = season.startQualifyingMovementTurn();
+    assert.equal(turn.dice.laneChange, 4);
+    assert.equal(turn.laneChangeAllowance, 1);
+});
+
+test("dry track reduces active race lane changes", () => {
+    const season = Object.create(Season.prototype);
+    season.cars = [{ id: "car-a", autoMovement: 4, bonusMovement: 2 }];
+    season.currentEvent = {
+        phase: "heats",
+        trackCondition: "Dry",
+        activeRace: {
+            currentTurn: null,
+            state: createRaceState([{
+                carId: "car-a",
+                position: { section: 10, lane: 2 },
+                completedLaps: 0,
+                distance: 0,
+                status: CAR_STATUSES.RUNNING,
+                mechanicalDamage: "none"
+            }], 2)
+        }
+    };
+
+    const turn = season.startActiveRaceTurn({
+        movementDie: 3,
+        laneChangeDie: 4,
+        eventDie: 2
+    });
+    assert.equal(turn.laneChangeAllowance, 1);
+});
 
 test("heat race integration records results in the supplied official order", () => {
     const season = makeSeasonWithEvent({
@@ -178,7 +229,7 @@ test("season integration rejects an official order that omits a race car", () =>
 });
 
 
-test("starting a heat creates a three-lap race with the correct grid", () => {
+test("starting a heat creates a two-lap race with the correct grid", () => {
     const cars = [
         { id: "car-a", autoMovement: 4, bonusMovement: 1 },
         { id: "car-b", autoMovement: 5, bonusMovement: 2 },
@@ -214,7 +265,8 @@ test("starting a heat creates a three-lap race with the correct grid", () => {
 
     const race = season.startHeatRace(1);
 
-    assert.equal(race.lapsToComplete, 4);
+    assert.equal(race.lapsToComplete, 3);
+    assert.equal(season.currentEvent.activeRace.lapsToComplete, 2);
     assert.equal(race.status, "running");
     assert.equal(race.raceCars.every((raceCar) => raceCar.completedLaps === 0), true);
     assert.deepEqual(
@@ -295,6 +347,19 @@ test("starting the same heat twice is rejected", () => {
     );
 });
 
+test("heats use a two-lap display target and the matching internal crossing counter", () => {
+    const season = makeSeasonWithEvent({
+        phase: "heats",
+        heatLineups: [{ heatNumber: 1, entries: [{ carId: "car-a", startingPosition: 1 }] }],
+        heatResults: [{ heatNumber: 1, results: [] }]
+    });
+    season.cars = [{ id: "car-a", autoMovement: 4, bonusMovement: 1 }];
+
+    const race = season.startHeatRace(1);
+    assert.equal(race.lapsToComplete, 3);
+    assert.equal(season.currentEvent.activeRace.lapsToComplete, 2);
+});
+
 test("B-main and A-main start with their configured lap targets", () => {
     const cars = [
         { id: "car-a", autoMovement: 4, bonusMovement: 1 },
@@ -315,7 +380,8 @@ test("B-main and A-main start with their configured lap targets", () => {
 
     const bMain = bMainSeason.startBMainRace();
 
-    assert.equal(bMain.lapsToComplete, 4);
+    assert.equal(bMain.lapsToComplete, 3);
+    assert.equal(bMainSeason.currentEvent.activeRace.lapsToComplete, 2);
     assert.equal(bMainSeason.currentEvent.activeRace.raceType, "b-main");
 
     const aMainSeason = makeSeasonWithEvent({
@@ -332,7 +398,8 @@ test("B-main and A-main start with their configured lap targets", () => {
 
     const aMain = aMainSeason.startAMainRace();
 
-    assert.equal(aMain.lapsToComplete, 6);
+    assert.equal(aMain.lapsToComplete, 5);
+    assert.equal(aMainSeason.currentEvent.activeRace.lapsToComplete, 4);
     assert.equal(aMainSeason.currentEvent.activeRace.raceType, "a-main");
 });
 

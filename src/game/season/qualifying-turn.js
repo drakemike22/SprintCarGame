@@ -18,7 +18,8 @@ function rollDie() {
 function createQualifyingTurn({
     car,
     currentPosition = { section: 29, lane: 2 },
-    occupiedPositions = []
+    occupiedPositions = [],
+    trackCondition = "Normal"
 }) {
     if (!car || typeof car !== "object") {
         throw new Error("A valid car is required for qualifying.");
@@ -30,7 +31,8 @@ function createQualifyingTurn({
         occupiedPositions,
         movementDie: rollDie(),
         laneChangeDie: rollDie(),
-        eventDie: rollDie()
+        eventDie: rollDie(),
+        trackCondition
     });
 }
 

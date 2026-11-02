@@ -111,7 +111,7 @@ test("all cars crossing in the same round finish in crossing order", () => {
 });
 
 
-test("a yellow flag preserves cars that already crossed the finish in the round", () => {
+test("a yellow flag on the same turn as a finisher ends the race and classifies the remaining cars", () => {
     const race = createRaceState([
         makeCar("car-a", 29, 2),
         makeCar("car-b", 10, 1)
@@ -122,12 +122,11 @@ test("a yellow flag preserves cars that already crossed the finish in the round"
         wreckResolution: { yellowFlag: true }
     });
 
-    assert.equal(race.status, "yellow-flag");
+    assert.equal(race.status, "completed");
     assert.equal(race.raceCars.find((car) => car.carId === "car-a").status, CAR_STATUSES.FINISHED);
+    assert.equal(race.raceCars.find((car) => car.carId === "car-b").status, CAR_STATUSES.FINISHED);
     assert.deepEqual(race.finishOrder, ["car-a"]);
-
-    restartRaceAfterYellow(race);
-    assert.equal(getCurrentRaceCar(race).carId, "car-b");
+    assert.deepEqual(race.officialFinishOrder, ["car-a", "car-b"]);
 });
 
 test("a later DNF is placed ahead of an earlier DNF", () => {

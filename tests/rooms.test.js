@@ -762,7 +762,7 @@ test("Heat 1 starts only after every player confirms readiness", () => {
     assert.equal(guestReady.event.heatPreparation.allPlayersReady, true);
     assert.equal(guestReady.event.activeRace.raceType, "heat");
     assert.equal(guestReady.event.activeRace.heatNumber, 1);
-    assert.equal(guestReady.event.activeRace.lapsToComplete, 3);
+    assert.equal(guestReady.event.activeRace.lapsToComplete, 2);
     assert.equal(guestReady.event.trackCondition, complete.event.trackCondition);
 
     // The first car must be published as ready for its owner to start.
@@ -1394,6 +1394,45 @@ test("qualifying mechanical failure records movement before ending the run", (t)
 });
 
 
+test("qualifying route previews are shared with the other players and cleared on confirmation", (t) => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    const room = manager.rooms.get(code);
+    const nextCar = manager.getRoom(code, host.playerId).event.qualifying.nextCar;
+    const ownerId = nextCar.playerName === "Host" ? host.playerId : guest.playerId;
+    const otherPlayerId = ownerId === host.playerId ? guest.playerId : host.playerId;
+    t.mock.method(Math, "random", () => 0.5);
+
+    manager.startNextQualifyingRun(code, ownerId);
+    manager.startQualifyingMovementTurn(code, ownerId);
+    const activeResult = room.season.currentEvent.qualifyingSession.activeResult;
+    const originalHistory = structuredClone(activeResult.movementTurn.history);
+    const plannedPositions = [];
+    let preview = null;
+    let steps = 0;
+
+    while ((!preview || preview.status === "waiting-for-choice") && steps < 30) {
+        const legalPositions = preview?.legalNextPositions ?? activeResult.movementTurn.legalNextPositions;
+        const nextPosition = legalPositions[0];
+        assert.ok(nextPosition);
+        plannedPositions.push(nextPosition);
+        preview = manager.previewQualifyingMovementRoute(code, ownerId, plannedPositions);
+        steps += 1;
+    }
+
+    assert.ok(steps < 30);
+    assert.ok(["complete", "stuck"].includes(preview.status));
+    const shared = manager.getRoom(code, otherPlayerId).event.sharedMovementPreview;
+    assert.ok(shared);
+    assert.equal(shared.isYours, false);
+    assert.equal(shared.phase, "qualifying");
+    assert.deepEqual(shared.positions, plannedPositions);
+    assert.deepEqual(activeResult.movementTurn.history, originalHistory);
+
+    const confirmed = manager.confirmQualifyingMovementRoute(code, ownerId, plannedPositions);
+    assert.equal(confirmed.event.sharedMovementPreview, null);
+});
+
 test("active race route previews do not mutate the turn until the complete route is confirmed", (t) => {
     const context = createQualifyingRoom();
     const { manager, host, guest, code } = context;
@@ -1429,6 +1468,12 @@ test("active race route previews do not mutate the turn until the complete route
         steps += 1;
     }
 
+    const sharedPreviewForOtherPlayer = manager.getRoom(code, otherPlayerId).event.sharedMovementPreview;
+    assert.ok(sharedPreviewForOtherPlayer, "the other player should receive the active route preview");
+    assert.equal(sharedPreviewForOtherPlayer.carNumber, room.season.cars.find((car) => car.id === carId).number);
+    assert.deepEqual(sharedPreviewForOtherPlayer.positions, plannedPositions);
+    assert.equal(sharedPreviewForOtherPlayer.isYours, false);
+
     assert.ok(steps < 30);
     assert.ok(["complete", "stuck"].includes(preview.status));
     assert.deepEqual(raceRecord.currentTurn.history, originalHistory);
@@ -1442,6 +1487,7 @@ test("active race route previews do not mutate the turn until the complete route
     assert.equal(confirmed.event.activeRace.turn.status, preview.status);
     assert.equal(confirmed.event.activeRace.turn.history.length, plannedPositions.length + 1);
     assert.notDeepEqual(raceRecord.currentTurn.history, originalHistory);
+    assert.equal(confirmed.event.sharedMovementPreview, null, "confirmed routes should no longer be shown as previews");
 });
 
 test("completed active race turns advance the current turn round", (t) => {
@@ -1603,7 +1649,7 @@ test("active race snapshots expose car positions without internal IDs", () => {
     room.season.currentEvent.activeRace = {
         raceType: "heat",
         heatNumber: 1,
-        lapsToComplete: 3,
+        lapsToComplete: 2,
         state: {
             status: "running",
             yellowFlag: false,
@@ -1631,7 +1677,7 @@ test("active race snapshots expose car positions without internal IDs", () => {
 
     assert.equal(activeRace.raceType, "heat");
     assert.equal(activeRace.heatNumber, 1);
-    assert.equal(activeRace.lapsToComplete, 3);
+    assert.equal(activeRace.lapsToComplete, 2);
     assert.equal(activeRace.cars.length, 2);
     assert.equal(activeRace.standings.length, 2);
     assert.equal(activeRace.standings[0].carNumber, car.number);
@@ -1817,6 +1863,32 @@ test("account identity is stored privately and can restore a room credential", (
     assert.equal(rejoined.playerId, created.playerId);
     assert.equal(rejoined.room.players[0].isYou, true);
     assert.equal(JSON.stringify(created.room).includes(accountId), false);
+});
+
+test("rejoining after refresh rechecks and starts a race when every player is already ready", () => {
+    const context = createQualifyingRoom();
+    const { manager, host, guest, code } = context;
+    const room = manager.rooms.get(code);
+    room.players.find((player) => player.id === host.playerId).accountUserId = "account-host";
+    room.season.startBMainRace = function () { this.startedBMain = true; };
+    room.raceTransition = {
+        previousRace: "Heat 4",
+        previousResults: [],
+        nextRace: "B Main",
+        nextRaceType: "b-main",
+        nextHeatNumber: null,
+        nextLineup: [],
+        readyPlayerIds: new Set([host.playerId, guest.playerId]),
+        started: false,
+        final: false
+    };
+    room.players.forEach((player) => { player.lastSeenAt = Date.now(); });
+
+    const rejoined = manager.rejoinRoom(code, "account-host");
+
+    assert.equal(room.season.startedBMain, true);
+    assert.equal(room.raceTransition.started, true);
+    assert.equal(rejoined.room.event.raceTransition.active, false);
 });
 
 test("an account cannot join the same room twice", () => {

@@ -98,7 +98,8 @@ function startTurn({
     occupiedPositions = [],
     movementDie,
     laneChangeDie,
-    eventDie
+    eventDie,
+    trackCondition = "Normal"
 }) {
     validateDie(movementDie, "Movement die");
     validateDie(laneChangeDie, "Lane-change die");
@@ -110,8 +111,9 @@ function startTurn({
         laneChangeDie
     );
 
-    const laneChangeAllowance = calculateLaneChange(
-        laneChangeDie
+    const laneChangeAllowance = Math.max(
+        0,
+        calculateLaneChange(laneChangeDie) - (trackCondition === "Dry" ? 1 : 0)
     );
     
     if (

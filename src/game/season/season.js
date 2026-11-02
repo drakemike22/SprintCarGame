@@ -22,10 +22,11 @@
  */
 const { Draft } = require("./draft");
 const { QualifyingSession } = require("./qualifying-session");
-const {
-    createRaceResults,
-    B_MAIN_TRANSFER_LIMIT
-} = require("../rules/race-results");
+const { createRaceResults } = require("../rules/race-results");
+
+// The A-main field is fixed at 24 cars. B-main transfers fill any places
+// not occupied by eligible direct heat transfers.
+const A_MAIN_FIELD_SIZE = 24;
 const { createQualifyingTurn } = require("./qualifying-turn");
 const {
     createRaceFinishers
@@ -338,7 +339,7 @@ class Season {
         this.currentEvent = {
             eventNumber: 1,
             phase: "qualifying",
-            trackCondition: "Normal",
+            trackCondition: this._spinTrackCondition(),
             qualifyingResults: [],
             qualifyingSession
         };
@@ -471,7 +472,7 @@ class Season {
         this.currentEvent = {
             eventNumber: this.currentEventNumber,
             phase: "qualifying",
-            trackCondition: "Normal",
+            trackCondition: this._spinTrackCondition(),
             qualifyingResults: [],
             qualifyingSession
         };
@@ -556,7 +557,8 @@ class Season {
 
         result.movementTurn = createQualifyingTurn({
             car,
-            currentPosition
+            currentPosition,
+            trackCondition: this.currentEvent.trackCondition
         });
 
         return result.movementTurn;
@@ -756,9 +758,7 @@ class Season {
             heatNumber: heat.heatNumber,
             results: []
         }));
-        // One track-condition spin applies to all four heats.
-        this.currentEvent.trackCondition = this._spinTrackCondition();
-
+        // Qualifying and all four heats share the event's existing condition.
         this.currentEvent.phase = "heats";
 
         return heats;
@@ -918,12 +918,12 @@ class Season {
             raceType: "heat",
             heatNumber,
             entries: lineup.entries,
-            lapsToComplete: 3
+            lapsToComplete: 2
         });
     }
 
     /**
-     * Starts the B-main as a three-lap race.
+     * Starts the B-main as a two-lap race.
      */
     startBMainRace() {
         if (!this.currentEvent) {
@@ -946,12 +946,12 @@ class Season {
             raceKey: "b-main",
             raceType: "b-main",
             entries: this.currentEvent.bMainLineup.entries,
-            lapsToComplete: 3
+            lapsToComplete: 2
         });
     }
 
     /**
-     * Starts the A-main as a five-lap race.
+     * Starts the A-main as a four-lap race.
      */
     startAMainRace() {
         if (!this.currentEvent) {
@@ -974,7 +974,7 @@ class Season {
             raceKey: "a-main",
             raceType: "a-main",
             entries: this.currentEvent.aMainLineup.entries,
-            lapsToComplete: 5
+            lapsToComplete: 4
         });
     }
     /*
@@ -1062,7 +1062,8 @@ class Season {
             ),
             movementDie,
             laneChangeDie,
-            eventDie
+            eventDie,
+            trackCondition: this.currentEvent.trackCondition
         });
 
         raceRecord.currentTurn = turn;
@@ -1438,7 +1439,14 @@ class Season {
             );
         }
 
-        const results = createRaceResults(finishers, B_MAIN_TRANSFER_LIMIT);
+        const directHeatTransfers = (this.currentEvent.heatResults ?? [])
+            .flatMap((heatResult) => heatResult.results ?? [])
+            .filter((result) => result.transferPosition !== null).length;
+        const remainingAMainSpots = Math.max(
+            0,
+            A_MAIN_FIELD_SIZE - directHeatTransfers
+        );
+        const results = createRaceResults(finishers, remainingAMainSpots);
 
         this.currentEvent.bMainResults = results;
         this.currentEvent.phase = "a-main";

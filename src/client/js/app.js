@@ -393,8 +393,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (summaryLanes) summaryLanes.textContent = Number.isFinite(displayedMovement?.laneChangesRemaining)
             ? String(displayedMovement.laneChangesRemaining)
             : "—";
-        if (summaryDistance) summaryDistance.textContent = Number.isFinite(raceCar?.distance)
-            ? `${raceCar.distance} spaces`
+        const distanceLabel = summaryDistance?.previousElementSibling;
+        if (distanceLabel) distanceLabel.textContent = "Position";
+        const activeRacePosition = activeRacePreview?.position ?? currentCar?.position ?? raceCar?.position;
+        if (summaryDistance) summaryDistance.textContent = Number.isInteger(activeRacePosition?.section) && Number.isInteger(activeRacePosition?.lane)
+            ? `Section ${activeRacePosition.section}, Lane ${activeRacePosition.lane}`
             : "—";
 
         if (turn?.dice) {
@@ -632,6 +635,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const summaryBonusSpeed = document.getElementById("turn-summary-bonus-speed");
             const summaryLanes = document.getElementById("turn-summary-lanes");
             const summaryDistance = document.getElementById("turn-summary-distance");
+            if (summaryDistance?.previousElementSibling) summaryDistance.previousElementSibling.textContent = "Total distance";
             if (summaryCar) summaryCar.textContent = "Waiting for car";
             if (summaryMovement) summaryMovement.textContent = "—";
             if (summaryCarSpeed) summaryCarSpeed.textContent = "—";
@@ -765,6 +769,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const totalDistance = readFirstNumber(activeRun, [
             "totalDistance", "distanceTravelled", "distanceTraveled", "distance", "totalSpacesMoved"
         ]) ?? readFirstNumber(turn, ["totalDistance", "distanceTravelled", "distanceTraveled"]);
+        const distanceLabel = summaryDistance?.previousElementSibling;
+        if (distanceLabel) distanceLabel.textContent = "Total distance";
         if (summaryDistance) {
             summaryDistance.textContent = totalDistance === null ? "—" : `${totalDistance} spaces`;
         }
@@ -2064,6 +2070,18 @@ document.addEventListener("DOMContentLoaded", () => {
             ? room?.event?.qualifying?.activeRun
             : null;
         const activeRace = room?.event?.activeRace;
+        const sharedMovementPreview = room?.event?.sharedMovementPreview;
+        const sharedQualifyingPreview = qualifyingRun &&
+            sharedMovementPreview?.phase === "qualifying" &&
+            !sharedMovementPreview.isYours
+                ? sharedMovementPreview
+                : null;
+        const sharedRacePreview = !qualifyingRun &&
+            sharedMovementPreview &&
+            sharedMovementPreview.phase === room?.event?.phase &&
+            !sharedMovementPreview.isYours
+                ? sharedMovementPreview
+                : null;
         const raceTurn = qualifyingRun ? null : activeRace?.turn;
         const movementTurn = qualifyingRun?.movementTurn ?? raceTurn;
         const isRaceMovement = Boolean(raceTurn);
@@ -2109,18 +2127,24 @@ document.addEventListener("DOMContentLoaded", () => {
         // race, or from the existing local preview during qualifying.
         const routePoints = [];
         const routePositions = isRaceMovement
-            ? (activeRacePreview?.history ?? (
+            ? (activeRacePreview?.history ?? sharedRacePreview?.preview?.history ?? (
                 raceTurn.history?.length > 1
                     ? raceTurn.history
                     : [raceTurn.position].filter(Boolean).concat(activeRacePlannedPositions)
             ))
-            : [
+            : sharedQualifyingPreview?.preview?.history ?? [
                 qualifyingRun?.qualifyingPosition ?? movementTurn?.position,
                 ...qualifyingPlannedPositions
             ].filter(Boolean);
         const selectedDestinations = isRaceMovement
-            ? (activeRacePreview ? activeRacePlannedPositions : (raceTurn.history ?? []).slice(1))
-            : qualifyingPlannedPositions;
+            ? (activeRacePreview
+                ? activeRacePlannedPositions
+                : sharedRacePreview
+                    ? sharedRacePreview.positions
+                    : (raceTurn.history ?? []).slice(1))
+            : sharedQualifyingPreview
+                ? sharedQualifyingPreview.positions
+                : qualifyingPlannedPositions;
 
         routePositions.forEach((position) => {
             const point = coordinates.get(`${position.section}-${position.lane}`);

@@ -12,6 +12,7 @@ const { applyRaceProgress } = require("./apply-race-progress");
 const { resolveWreck } = require("./resolve-wreck");
 const { validateMovementPlan } = require("../track/movement-planner");
 const { CAR_STATUSES } = require("./car-status");
+const { getTurnOrder } = require("./race-order");
 const {
     ROUND_STATUS,
     createTurnRound,
@@ -218,7 +219,32 @@ function stopRaceRoundForYellow(raceState, carsToBack = []) {
     const runningCars = raceState.raceCars.filter(
         (raceCar) => raceCar.status === CAR_STATUSES.RUNNING
     );
-    if (runningCars.length === 0 && raceState.lapsToComplete !== null && raceState.lapsToComplete !== undefined) {
+    const hasLapTarget = raceState.lapsToComplete !== null &&
+        raceState.lapsToComplete !== undefined;
+
+    if (hasLapTarget && raceState.finishOrder.length > 0) {
+        // Once at least one car has taken the checkered flag, a subsequent
+        // yellow ends the race instead of creating another restart. Cars
+        // still running are classified by their position at the caution.
+        const runningOrder = getTurnOrder(runningCars).map((raceCar) => raceCar.carId);
+        for (const raceCar of runningCars) {
+            raceCar.status = CAR_STATUSES.FINISHED;
+        }
+        const knownDnfIds = raceState.dnfOrder ?? [];
+        const remainingDnfs = raceState.raceCars
+            .filter((raceCar) =>
+                raceCar.status !== CAR_STATUSES.FINISHED &&
+                !knownDnfIds.includes(raceCar.carId)
+            )
+            .map((raceCar) => raceCar.carId);
+        raceState.officialFinishOrder = [
+            ...raceState.finishOrder,
+            ...runningOrder,
+            ...knownDnfIds,
+            ...remainingDnfs
+        ];
+        raceState.status = "completed";
+    } else if (hasLapTarget && runningCars.length === 0) {
         const knownDnfIds = raceState.dnfOrder ?? [];
         const remainingDnfs = raceState.raceCars
             .filter((raceCar) => raceCar.status !== CAR_STATUSES.FINISHED && !knownDnfIds.includes(raceCar.carId))

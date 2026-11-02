@@ -818,3 +818,19 @@ Implemented in this working copy:
 - Verify the Durable Object binding and migration in the target Cloudflare account.
 - Deploy and perform a real two-account test: create, join, close browser, sign in again, view My Games, and rejoin from a fresh browser session.
 - Existing rooms created before account membership was added do not automatically gain account associations.
+
+## 2026-11-02 — Race rules, shared movement previews, and reconnect corrections
+
+Implemented in the isolated working copy based on the supplied `SprintCarGame(3).zip` (Git base `7e75033`):
+
+- Race lengths are now 2 laps for heats, 2 laps for the B Main, and 4 laps for the A Main. The race engine's internal crossing target remains one higher because its counter begins at zero on the starting grid.
+- Dry track reduces lane-change allowance by one, with a floor of zero. The event track condition is selected before qualifying and is passed into qualifying and active heat/main turns. Qualifying and all four heats share the first condition; the B Main and A Main share the later condition.
+- The Current Turn summary displays the active car's section/lane position during heats and mains, while qualifying continues to display total distance.
+- Qualifying and active-race route previews are stored temporarily in the room snapshot for other players to see. They remain non-authoritative and are cleared when the route is committed or the next turn begins.
+- If a yellow flag occurs after at least one car has finished, the race ends immediately. Remaining running cars are classified by current track position after the actual finishers; retired cars remain behind them in DNF order.
+- Returning through the account rejoin endpoint now rechecks the next-race readiness gate immediately, so an already-ready group can start when the returning player comes back online.
+- B Main transfer spots now fill the A Main's 24-car field after accounting for the number of eligible direct heat transfers. The lineup does not add duplicate or out-for-event cars.
+
+Regression coverage added/updated for shared qualifying and race previews, yellow-flag classification, readiness after rejoin, dry-track lane allowances in both qualifying and race turns, the 24-car A Main vacancy case, and displayed/internal race lap targets.
+
+Validation: `npm test` — **594 passed, 0 failed**. `node --check` passed for all JavaScript files under `src/` and `tests/`. No browser-based multiplayer playthrough was performed. No GitHub push or Cloudflare deployment was performed; the live game remains unchanged.

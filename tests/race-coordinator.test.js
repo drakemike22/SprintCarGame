@@ -107,6 +107,32 @@ test("yellow flag immediately stops the current round", () => {
     assert.equal(getCurrentRaceCar(race), null);
 });
 
+test("a yellow flag after the first finisher ends the race and classifies the running cars by track position", () => {
+    const race = createRaceState([
+        { ...makeCar("first-finisher", 2), status: CAR_STATUSES.FINISHED, completedLaps: 1 },
+        makeCar("second", 27),
+        makeCar("third", 20),
+        makeCar("fourth", 11, 2, CAR_STATUSES.OUT_FOR_RACE),
+        makeCar("fifth", 8, 2, CAR_STATUSES.OUT_FOR_EVENT)
+    ], 1);
+    race.finishOrder = ["first-finisher"];
+    race.dnfOrder = ["fourth"];
+
+    stopRaceRoundForYellow(race, ["second"]);
+
+    assert.equal(race.status, "completed");
+    assert.equal(race.yellowFlag, true);
+    assert.deepEqual(race.officialFinishOrder, [
+        "first-finisher",
+        "second",
+        "third",
+        "fourth",
+        "fifth"
+    ]);
+    assert.equal(race.raceCars.find((car) => car.carId === "second").status, CAR_STATUSES.FINISHED);
+    assert.equal(race.raceCars.find((car) => car.carId === "third").status, CAR_STATUSES.FINISHED);
+});
+
 test("rejects a non-array of race cars", () => {
     assert.throws(
         () => createRaceState(null),

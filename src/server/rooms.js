@@ -153,7 +153,9 @@ class RoomManager {
             qualifyingWheelEvents: [],
             // Wheel events for the currently active heat/main are separate
             // from qualifying history and shared with every room player.
-            raceWheelEvents: []
+            raceWheelEvents: [],
+            // Temporary, non-authoritative movement route shared with room members.
+            sharedMovementPreview: null
 
         };
 
@@ -230,6 +232,7 @@ class RoomManager {
         }
         player.lastSeenAt = Date.now();
         this._startHeatWhenEveryoneIsReadyAndOnline(room);
+        this._startNextRaceWhenEveryoneIsReadyAndOnline(room);
         this._startNextEventWhenEveryoneIsReadyAndOnline(room);
         return { playerId: player.id, room: this.createRoomSnapshot(room, player.id) };
     }
@@ -727,6 +730,7 @@ class RoomManager {
         }
 
         try {
+            room.sharedMovementPreview = null;
             room.season.startQualifyingMovementTurn();
         } catch (error) {
             throw new RoomError(
@@ -793,6 +797,7 @@ class RoomManager {
                 result.movementTurn,
                 targetPosition
             );
+            room.sharedMovementPreview = null;
         } catch (error) {
             throw new RoomError(
                 "INVALID_QUALIFYING_MOVE",
@@ -861,7 +866,7 @@ class RoomManager {
                 previewTurn = chooseTurnPosition(previewTurn, position);
             }
 
-            return {
+            const preview = {
                 status: previewTurn.status,
                 position: previewTurn.position,
                 history: previewTurn.history,
@@ -869,6 +874,13 @@ class RoomManager {
                 movementRemaining: previewTurn.movementRemaining,
                 laneChangesRemaining: previewTurn.laneChangesRemaining
             };
+            room.sharedMovementPreview = positions.length > 0 ? {
+                phase: "qualifying",
+                carId: result.carId,
+                positions: positions.map((position) => ({ ...position })),
+                preview
+            } : null;
+            return preview;
         } catch (error) {
             throw new RoomError(
                 "INVALID_QUALIFYING_ROUTE",
@@ -978,6 +990,7 @@ class RoomManager {
             // Commit only after every step and final state have passed.
             candidateTurn.routeConfirmed = true;
             result.movementTurn = candidateTurn;
+            room.sharedMovementPreview = null;
         } catch (error) {
             throw new RoomError(
                 "INVALID_QUALIFYING_ROUTE",
@@ -1310,6 +1323,7 @@ class RoomManager {
         }
 
         try {
+            room.sharedMovementPreview = null;
             room.season.startActiveRaceTurn({
                 movementDie: crypto.randomInt(1, 7),
                 laneChangeDie: crypto.randomInt(1, 7),
@@ -1365,7 +1379,7 @@ class RoomManager {
             for (const position of positions) {
                 previewTurn = chooseTurnPosition(previewTurn, position);
             }
-            return {
+            const preview = {
                 status: previewTurn.status,
                 position: previewTurn.position,
                 history: previewTurn.history,
@@ -1373,6 +1387,13 @@ class RoomManager {
                 movementRemaining: previewTurn.movementRemaining,
                 laneChangesRemaining: previewTurn.laneChangesRemaining
             };
+            room.sharedMovementPreview = positions.length > 0 ? {
+                phase: event.phase,
+                carId,
+                positions: positions.map((position) => ({ ...position })),
+                preview
+            } : null;
+            return preview;
         } catch (error) {
             throw new RoomError("INVALID_RACE_ROUTE", error.message, 400);
         }
@@ -1424,6 +1445,7 @@ class RoomManager {
             if (!validation.valid) throw new Error(validation.reason);
 
             raceRecord.currentTurn = candidateTurn;
+            room.sharedMovementPreview = null;
         } catch (error) {
             throw new RoomError("INVALID_RACE_ROUTE", error.message, 400);
         }
@@ -2930,11 +2952,42 @@ class RoomManager {
                 }))
             } : null;
 
+            const sharedPreview = room.sharedMovementPreview;
+            let publicSharedMovementPreview = null;
+            if (sharedPreview && sharedPreview.phase === currentEvent.phase) {
+                const previewCar = carsById.get(sharedPreview.carId);
+                const previewOwnerId = season.carOwners[sharedPreview.carId];
+                const activeCarId = currentEvent.phase === "qualifying"
+                    ? qualifyingSession?.activeResult?.carId
+                    : activeRaceRecord?.currentTurn?.raceCar?.carId;
+                if (previewCar && activeCarId === sharedPreview.carId) {
+                    publicSharedMovementPreview = {
+                        phase: sharedPreview.phase,
+                        carNumber: previewCar.number,
+                        driverName: previewCar.driverName,
+                        playerName: playerNames.get(previewOwnerId) ?? null,
+                        isYours: previewOwnerId === viewerPlayerId,
+                        positions: sharedPreview.positions.map((position) => ({ ...position })),
+                        preview: {
+                            status: sharedPreview.preview.status,
+                            position: sharedPreview.preview.position,
+                            history: sharedPreview.preview.history,
+                            legalNextPositions: sharedPreview.preview.legalNextPositions,
+                            movementRemaining: sharedPreview.preview.movementRemaining,
+                            laneChangesRemaining: sharedPreview.preview.laneChangesRemaining
+                        }
+                    };
+                } else if (sharedPreview) {
+                    room.sharedMovementPreview = null;
+                }
+            }
+
             snapshot.event = {
                 eventNumber: currentEvent.eventNumber,
                 phase: currentEvent.phase,
                 trackCondition: currentEvent.trackCondition,
                 activeRace,
+                sharedMovementPreview: publicSharedMovementPreview,
                 raceTransition,
                 heatPreparation: room.heatPreparation && !room.heatPreparation.started
                     ? {

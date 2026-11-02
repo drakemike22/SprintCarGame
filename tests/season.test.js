@@ -605,7 +605,7 @@ function completeQualifying(season, event, distanceForCar) {
         season.recordQualifyingRoll(spaces);
     }
 }
-test("track condition starts Normal and one spin determines all four heats", () => {
+test("track condition is selected before qualifying and shared by all four heats", () => {
     let randomValue = 0.1;
 
     const { season, event } = startQualifyingSeason(
@@ -614,7 +614,7 @@ test("track condition starts Normal and one spin determines all four heats", () 
         { random: () => randomValue }
     );
 
-    assert.equal(event.trackCondition, "Normal");
+    assert.equal(event.trackCondition, "Dry");
 
     completeQualifying(season, event);
     season.createHeatLineups();
@@ -963,6 +963,37 @@ test("the A-main combines eligible heat and B-main transfers", () => {
     for (const carId of heatTransfers) {
         assert.ok(aMainCarIds.includes(carId));
     }
+});
+
+test("B-main transfers fill all 24 A-main spots when heat ineligibility reduces direct transfers", () => {
+    const { season, event } = prepareSeasonWithHeatResults();
+
+    // Four cars in Heat 1 are out for the event. Only its remaining
+    // eligible direct-transfer finisher keeps a heat transfer; its other
+    // three eligible cars join the B-main. The other heats supply 15 direct
+    // transfers, leaving eight A-main places for the B-main.
+    const firstHeatResults = event.heatResults[0].results;
+    firstHeatResults.slice(0, 4).forEach((result) => {
+        result.statusAtFinish = "out-for-event";
+        result.eligibleToTransfer = false;
+        result.transferPosition = null;
+    });
+    firstHeatResults[4].transferPosition = 1;
+    firstHeatResults[5].transferPosition = null;
+    firstHeatResults[6].transferPosition = null;
+    firstHeatResults[7].transferPosition = null;
+
+    const bMain = season.createBMainLineup();
+    assert.equal(bMain.entries.length, 12);
+    season.recordBMainResults(bMain.entries.map((entry) => ({
+        carId: entry.carId,
+        statusAtFinish: "running"
+    })));
+
+    const aMain = season.createAMainLineup();
+    assert.equal(aMain.entries.length, 24);
+    assert.equal(new Set(aMain.entries.map((entry) => entry.carId)).size, 24);
+    assert.equal(event.bMainResults.filter((result) => result.transferPosition !== null).length, 8);
 });
 
 test("an out-for-event B-main finisher cannot transfer to the A-main", () => {

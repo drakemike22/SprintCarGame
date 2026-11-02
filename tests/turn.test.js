@@ -81,6 +81,34 @@ test("matching movement and lane-change dice add bonus movement", () => {
     assert.equal(turn.laneChangeAllowance, 2);
 });
 
+test("dry track reduces lane-change allowance by one", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 3,
+        laneChangeDie: 4,
+        eventDie: 5,
+        trackCondition: "Dry"
+    });
+
+    assert.equal(turn.laneChangeAllowance, 1);
+    assert.equal(turn.laneChangesRemaining, 1);
+});
+
+test("dry track cannot reduce lane-change allowance below zero", () => {
+    const turn = startTurn({
+        car: testCar,
+        currentPosition: { section: 25, lane: 1 },
+        movementDie: 3,
+        laneChangeDie: 1,
+        eventDie: 5,
+        trackCondition: "Dry"
+    });
+
+    assert.equal(turn.laneChangeAllowance, 0);
+    assert.equal(turn.laneChangesRemaining, 0);
+});
+
 test("a turn preserves all three dice results", () => {
     const turn = startTurn({
         car: testCar,
