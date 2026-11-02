@@ -2,75 +2,55 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { getEligibleFollowOnCars } = require("../src/game/rules/follow-on-spins");
 
-function car(carId, progress, status = "running") {
-    return {
-        carId,
-        completedLaps: Math.floor(progress / 30),
-        position: { section: progress % 30, lane: 2 },
-        status
-    };
+function car(carId, section, lane, status = "running") {
+    return { carId, position: { section, lane }, status };
 }
 
-function evaluate(requested, progresses, wreckProgress = 100) {
-    const order = ["wreck", "one", "two", "three", "four"];
-    const raceCars = [
-        car("wreck", wreckProgress),
-        car("one", progresses.one),
-        car("two", progresses.two),
-        car("three", progresses.three),
-        car("four", progresses.four ?? 0)
-    ];
+function select(followOnSpins, raceCars, wreckPosition = { section: 10, lane: 2 }) {
     return getEligibleFollowOnCars({
-        order,
-        currentIndex: 0,
-        followOnSpins: requested.map(carsBehind => ({ carsBehind })),
-        raceCars,
-        wreckProgress
+        wreckPosition,
+        wreckCarId: "wreck",
+        followOnSpins: followOnSpins.map(carsBehind => ({ carsBehind })),
+        raceCars
     }).map(entry => entry.carId);
 }
 
-test("a single collected car must be within six spaces of the wreck", () => {
-    assert.deepEqual(evaluate([1], { one: 94 }), ["one"]);
-    assert.deepEqual(evaluate([1], { one: 93 }), []);
+test("scans backward by track space and checks lanes 0 through 3", () => {
+    const cars = [
+        car("wreck", 10, 2),
+        car("lane-3", 9, 3),
+        car("lane-1", 9, 1),
+        car("lane-0", 9, 0),
+        car("lane-2", 9, 2)
+    ];
+    assert.deepEqual(select([1, 2, 3, 4], cars), ["lane-0", "lane-1", "lane-2", "lane-3"]);
 });
 
-test("the second and third cars use a ten-space then six-space chain", () => {
-    assert.deepEqual(
-        evaluate([2, 3], { one: 70, two: 90, three: 84 }),
-        ["two", "three"]
-    );
-    assert.deepEqual(
-        evaluate([2, 3], { one: 70, two: 89, three: 83 }),
-        []
-    );
-    assert.deepEqual(
-        evaluate([2, 3], { one: 70, two: 90, three: 83 }),
-        ["two"]
-    );
+test("requested ordinals select the matching cars encountered behind the wreck", () => {
+    const cars = [
+        car("wreck", 10, 2),
+        car("first", 9, 1),
+        car("second", 8, 0),
+        car("third", 8, 3)
+    ];
+    assert.deepEqual(select([2, 3], cars), ["second", "third"]);
 });
 
-test("one, two, and three-car collections require six spaces between each car", () => {
-    assert.deepEqual(
-        evaluate([1, 2, 3], { one: 94, two: 88, three: 82 }),
-        ["one", "two", "three"]
-    );
-    assert.deepEqual(
-        evaluate([1, 2, 3], { one: 94, two: 87, three: 81 }),
-        ["one"]
-    );
+test("skips cars that are no longer running and continues scanning", () => {
+    const cars = [
+        car("wreck", 10, 2),
+        car("out", 9, 0, "out-for-race"),
+        car("eligible", 9, 1)
+    ];
+    assert.deepEqual(select([1], cars), ["eligible"]);
 });
 
-test("cars that are no longer running cannot be collected", () => {
-    const order = ["wreck", "one"];
-    const raceCars = [car("wreck", 100), car("one", 96, "out-for-race")];
-    assert.deepEqual(
-        getEligibleFollowOnCars({
-            order,
-            currentIndex: 0,
-            followOnSpins: [{ carsBehind: 1 }],
-            raceCars,
-            wreckProgress: 100
-        }),
-        []
-    );
+test("wraps backward from section zero to the final track section", () => {
+    const cars = [car("wreck", 0, 2), car("wrapped", 29, 3)];
+    assert.deepEqual(select([1], cars, { section: 0, lane: 2 }), ["wrapped"]);
+});
+
+test("does not collect the wrecking car or request missing ordinals", () => {
+    const cars = [car("wreck", 10, 2), car("only", 9, 0)];
+    assert.deepEqual(select([1, 2, 3], cars), ["only"]);
 });

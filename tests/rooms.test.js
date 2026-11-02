@@ -1522,6 +1522,7 @@ test("active race mechanical incidents resolve, acknowledge, and allow turn comp
     assert.equal(raceRecord.currentTurn.mechanicalWheel.status, "resolved");
     assert.equal(resolved.raceWheelEvents.length, 1);
     assert.equal(resolved.raceWheelEvents[0].wheelType, "mechanical");
+    assert.equal(resolved.raceWheelEvents[0].yellowFlag, false);
     assert.equal(resolved.raceWheelEvents[0].carNumber,
         room.season.cars.find((car) => car.id === carId).number);
 

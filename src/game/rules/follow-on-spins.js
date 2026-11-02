@@ -1,66 +1,48 @@
 /*
  * Follow-on Spin Eligibility
  * --------------------------
- * Determines which cars are close enough to be collected by a wreck.
- * Distances are measured in track spaces using completed laps + section.
+ * Selects requested cars by scanning physical track spaces backward from
+ * the wreck car's post-movement position. Within each space, lanes are
+ * checked inside-to-outside (0, 1, 2, 3).
  */
 
 const { CAR_STATUSES } = require("./car-status");
+const { TRACK_SECTIONS, TRACK_LANES } = require("../track/movement");
 
-function getEligibleFollowOnCars({
-    order,
-    currentIndex,
-    followOnSpins,
-    raceCars,
-    wreckProgress
-}) {
-    if (!Array.isArray(order) || !Number.isInteger(currentIndex) ||
-        !Array.isArray(followOnSpins) || !Array.isArray(raceCars) ||
-        !Number.isInteger(wreckProgress)) {
-        throw new Error("Valid race order, follow-on rules, cars, and wreck progress are required.");
+function getEligibleFollowOnCars({ wreckPosition, followOnSpins, raceCars, wreckCarId }) {
+    if (!wreckPosition || !Number.isInteger(wreckPosition.section) ||
+        wreckPosition.section < 0 || wreckPosition.section >= TRACK_SECTIONS ||
+        !Array.isArray(followOnSpins) || !Array.isArray(raceCars)) {
+        throw new Error("A valid wreck position, follow-on rules, and race cars are required.");
     }
 
-    const requestedDistances = followOnSpins
+    const requested = [...new Set(followOnSpins
         .map(entry => entry?.carsBehind)
-        .filter(value => Number.isInteger(value) && value > 0)
-        .sort((a, b) => a - b);
-    const isSecondAndThirdResult =
-        requestedDistances.length === 2 &&
-        requestedDistances[0] === 2 &&
-        requestedDistances[1] === 3;
+        .filter(value => Number.isInteger(value) && value > 0))].sort((a, b) => a - b);
+    if (requested.length === 0) return [];
 
-    const eligible = [];
-    let previousCaughtProgress = wreckProgress;
-    let previousCaught = true;
-
-    for (const carsBehind of requestedDistances) {
-        const carId = order[currentIndex + carsBehind];
-        if (!carId || !previousCaught) {
-            previousCaught = false;
-            continue;
-        }
-
-        const raceCar = raceCars.find(car => car.carId === carId);
-        if (!raceCar || raceCar.status !== CAR_STATUSES.RUNNING) {
-            previousCaught = false;
-            continue;
-        }
-
-        const progress = raceCar.completedLaps * 30 + raceCar.position.section;
-        const gap = previousCaughtProgress - progress;
-        const maxGap = isSecondAndThirdResult && carsBehind === 2 ? 10 : 6;
-
-        if (gap < 0 || gap > maxGap) {
-            previousCaught = false;
-            continue;
-        }
-
-        eligible.push({ carId, carsBehind });
-        previousCaughtProgress = progress;
-        previousCaught = true;
+    const byPosition = new Map();
+    for (const car of raceCars) {
+        if (!car?.position || !Number.isInteger(car.position.section) ||
+            !Number.isInteger(car.position.lane)) continue;
+        if (car.status !== CAR_STATUSES.RUNNING || car.carId === wreckCarId) continue;
+        byPosition.set(`${car.position.section}:${car.position.lane}`, car);
     }
 
-    return eligible;
+    const selected = [];
+    const maxRequested = requested[requested.length - 1];
+    // The wreck car's space is the reference point; begin one space behind.
+    for (let distance = 1; distance <= TRACK_SECTIONS && selected.length < maxRequested; distance += 1) {
+        const section = (wreckPosition.section - distance + TRACK_SECTIONS) % TRACK_SECTIONS;
+        for (let lane = 0; lane < TRACK_LANES && selected.length < maxRequested; lane += 1) {
+            const car = byPosition.get(`${section}:${lane}`);
+            if (car) selected.push(car);
+        }
+    }
+
+    return requested
+        .filter(ordinal => selected[ordinal - 1])
+        .map(carsBehind => ({ carId: selected[carsBehind - 1].carId, carsBehind }));
 }
 
 module.exports = { getEligibleFollowOnCars };

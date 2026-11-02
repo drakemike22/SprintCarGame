@@ -1667,24 +1667,20 @@ class RoomManager {
             : resolvedTurn.wreckWheel?.result;
         const car = room.season.cars.find((item) => item.id === carId);
 
-        // The wreck rules describe follow-on cars by their place behind the
-        // original wreck. Resolve those positions against this round's fixed
-        // turn order and assign each follow-on spin on the server.
+        // Resolve follow-on cars from the physical track position after the
+        // active car's movement, before applying any backward wreck penalty.
         if (wheelType === "wreck") {
-            const currentIndex = raceRecord.state.round.currentIndex;
-            const order = raceRecord.state.round.order;
-            // resolveWreckSpinner already includes this turn's lap crossings
-            // in raceCar.completedLaps; use the route endpoint before any
-            // backward wreck punishment to measure the collection gap.
-            const wreckProgress =
-                (resolvedTurn.raceCar?.completedLaps ?? 0) * 30 +
-                resolvedTurn.position.section;
+            const wreckPosition = resolvedTurn.position;
+            const carsAtMovementEndpoint = raceRecord.state.raceCars.map(raceCar =>
+                raceCar.carId === carId
+                    ? { ...raceCar, position: wreckPosition, completedLaps: resolvedTurn.raceCar?.completedLaps ?? raceCar.completedLaps }
+                    : raceCar
+            );
             const eligibleFollowOns = getEligibleFollowOnCars({
-                order,
-                currentIndex,
+                wreckPosition,
+                wreckCarId: carId,
                 followOnSpins: resolvedTurn.wreckResolution.followOnSpins ?? [],
-                raceCars: raceRecord.state.raceCars,
-                wreckProgress
+                raceCars: carsAtMovementEndpoint
             });
             const resolvedFollowOns = [];
 
@@ -1748,7 +1744,7 @@ class RoomManager {
             consequence: outcome?.consequence ?? "none",
             yellowFlag: wheelType === "wreck"
                 ? Boolean(resolvedTurn.wreckResolution?.yellowFlag)
-                : (outcome?.consequence ?? "none") !== "none",
+                : false,
             createdAt: Date.now()
         });
 
@@ -1987,7 +1983,7 @@ class RoomManager {
                 slot,
                 outcome: outcome.type,
                 consequence: outcome.consequence,
-                yellowFlag: outcome.consequence !== "none",
+                yellowFlag: false,
                 followOnSpins: [],
                 qualifyingFinishReason:
                     outcome.consequence === "none"
@@ -2004,7 +2000,7 @@ class RoomManager {
                 wheelType: "mechanical",
                 outcome: outcome.type,
                 consequence: outcome.consequence,
-                yellowFlag: outcome.consequence !== "none",
+                yellowFlag: false,
                 createdAt: Date.now()
             });
         } catch (error) {
