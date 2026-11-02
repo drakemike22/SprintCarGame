@@ -16,13 +16,24 @@ async function requireUser(request, env) {
 async function handleAccountApi(request, env) {
     const url = new URL(request.url);
     if (!['/api/account/profile', '/api/account/games'].includes(url.pathname)) return null;
-    if (url.pathname === "/api/account/games" && request.method !== "GET") return json({ error: "Method not allowed." }, 405);
+    if (url.pathname === "/api/account/games" && !["GET", "DELETE"].includes(request.method)) return json({ error: "Method not allowed." }, 405);
     if (url.pathname === "/api/account/profile" && !['GET', 'PUT'].includes(request.method)) return json({ error: "Method not allowed." }, 405);
     if (!env.DB) return json({ error: "Account database is not configured." }, 503);
     const user = await requireUser(request, env);
     if (!user) return json({ error: "A valid signed-in account is required." }, 401);
 
     if (url.pathname === "/api/account/games") {
+        if (request.method === "DELETE") {
+            let body;
+            try { body = await request.json(); }
+            catch { return json({ error: "Request body must be valid JSON." }, 400); }
+            const roomCode = typeof body.roomCode === "string" ? body.roomCode.trim().toUpperCase() : "";
+            if (!/^[A-Z0-9]{4,12}$/.test(roomCode)) return json({ error: "A valid room code is required." }, 400);
+            const result = await env.DB.prepare(
+                "DELETE FROM saved_game_players WHERE room_code = ? AND user_id = ?"
+            ).bind(roomCode, user.sub).run();
+            return json({ removed: Boolean(result.meta ? result.meta.changes : result.changes) });
+        }
         const result = await env.DB.prepare(`
             SELECT sg.room_code, sg.room_name, sg.status, sg.created_at,
                    sg.updated_at, sg.last_played_at, sg.owner_user_id, sgp.player_role

@@ -2926,12 +2926,7 @@ a {
     border-radius: 14px;
     background: rgba(20,24,20,.72);
 }
-.account-form-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 28px;
-}
-.account-form-grid form,
+.account-access-form,
 #account-profile-form {
     display: grid;
     gap: 10px;
@@ -2941,12 +2936,19 @@ a {
     width: 100%;
     box-sizing: border-box;
 }
+.account-access-form { max-width: 520px; }
+.account-access-form label,
+#account-profile-form label { margin-top: 8px; }
+.account-actions,
+.saved-game-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.text-button { border: 0; padding: 8px 0; background: transparent; color: #d9b45b; text-decoration: underline; cursor: pointer; }
 .account-feedback { min-height: 1.5em; margin-bottom: 0; }
 .account-feedback.is-error { color: #ff9b86; }
 .account-note { opacity: .75; font-size: .9rem; }
 #account-signout { margin-top: 18px; }
 @media (max-width: 700px) {
-    .account-form-grid { grid-template-columns: 1fr; }
+    .account-actions { flex-direction: column; }
+    .account-actions button { width: 100%; }
     .account-panel { padding: 18px; }
 }
 
@@ -2970,3 +2972,7 @@ a {
     margin: 0 0 14px;
     color: #62665f;
 }
+.saved-game-actions { margin-top: 16px; }
+.saved-game-remove { border-color: #b9bcb5; color: #42463f; }
+.my-games-intro { max-width: 680px; }
+#my-games-account-status { color: #c9cbbf; }

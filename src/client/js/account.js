@@ -77,17 +77,48 @@
             heading.textContent = game.room_name || `Room ${game.room_code}`;
             const detail = document.createElement("p");
             detail.textContent = `Code: ${game.room_code} · ${game.player_role === "HOST" ? "Host" : "Player"} · ${game.status}`;
+            const actions = document.createElement("div");
+            actions.className = "saved-game-actions";
             const button = document.createElement("button");
             button.type = "button";
             button.className = "primary-button";
             button.textContent = "Return to Game";
             button.dataset.rejoinRoom = game.room_code;
-            card.append(heading, detail, button);
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "secondary-button saved-game-remove";
+            remove.textContent = "Remove from My Games";
+            remove.dataset.removeRoom = game.room_code;
+            actions.append(button, remove);
+            card.append(heading, detail, actions);
             myGamesList.append(card);
         }
     }
 
     myGamesList.addEventListener("click", async (event) => {
+        const removeButton = event.target.closest("[data-remove-room]");
+        if (removeButton) {
+            const roomCode = removeButton.dataset.removeRoom;
+            if (!window.confirm(`Remove ${roomCode} from your My Games list? This will not delete the room or affect other players.`)) return;
+            removeButton.disabled = true;
+            try {
+                const { data, error } = await client.auth.getSession();
+                if (error || !data.session) throw new Error("Please sign in again to manage your saved games.");
+                const response = await fetch("/api/account/games", {
+                    method: "DELETE",
+                    headers: { Authorization: `Bearer ${data.session.access_token}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({ roomCode })
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(result.error || "Unable to remove this game.");
+                await loadMyGames(data.session);
+                message("Game removed from your My Games list. The shared room was not deleted.");
+            } catch (error) {
+                message(error.message, true);
+                removeButton.disabled = false;
+            }
+            return;
+        }
         const button = event.target.closest("[data-rejoin-room]");
         if (!button) return;
         button.disabled = true;
@@ -126,25 +157,34 @@
         }
     }
 
-    document.getElementById("account-signup-form").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const email = document.getElementById("account-signup-email").value.trim();
-        const password = document.getElementById("account-signup-password").value;
+    const accountEmail = document.getElementById("account-email-input");
+    const accountPassword = document.getElementById("account-password-input");
+    document.getElementById("account-login-button").addEventListener("click", async () => {
+        if (!accountEmail.reportValidity() || !accountPassword.reportValidity()) return;
+        message("Signing in…");
+        const { data, error } = await client.auth.signInWithPassword({ email: accountEmail.value.trim(), password: accountPassword.value });
+        if (error) return message(error.message, true);
+        await renderSession(data.session);
+    });
+
+    document.getElementById("account-signup-button").addEventListener("click", async () => {
+        if (!accountEmail.reportValidity() || !accountPassword.reportValidity()) return;
+        if (accountPassword.value.length < 8) return message("Your password must be at least 8 characters long.", true);
         message("Creating your account…");
-        const { data, error } = await client.auth.signUp({ email, password });
+        const { data, error } = await client.auth.signUp({ email: accountEmail.value.trim(), password: accountPassword.value });
         if (error) return message(error.message, true);
         if (data.session) await renderSession(data.session);
         else message("Account created. Check your email for the confirmation link, then sign in.");
     });
 
-    document.getElementById("account-login-form").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const email = document.getElementById("account-login-email").value.trim();
-        const password = document.getElementById("account-login-password").value;
-        message("Signing in…");
-        const { data, error } = await client.auth.signInWithPassword({ email, password });
+    document.getElementById("account-forgot-password").addEventListener("click", async () => {
+        if (!accountEmail.reportValidity()) return message("Enter your email address first.", true);
+        message("Sending password reset email…");
+        const { error } = await client.auth.resetPasswordForEmail(accountEmail.value.trim(), {
+            redirectTo: `${window.location.origin}/#profile`
+        });
         if (error) return message(error.message, true);
-        await renderSession(data.session);
+        message("If an account exists for that email, a password reset link has been sent.");
     });
 
     document.getElementById("account-profile-form").addEventListener("submit", async (event) => {

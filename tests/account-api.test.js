@@ -118,3 +118,38 @@ test("My Games endpoint lists only games associated with the signed-in account",
     assert.match(query, /WHERE sgp\.user_id = \?/);
     assert.equal(payload.games[0].room_code, "ABC234");
 });
+
+
+test("My Games removal deletes only the signed-in user's room membership", async () => {
+    const { token, env } = await setupToken();
+    let query = "";
+    let values = [];
+    env.DB.prepare = (sql) => ({
+        bind(...args) { values = args; return this; },
+        async run() { query = sql; return { success: true, meta: { changes: 1 } }; }
+    });
+    const response = await handleAccountApi(new Request("https://game.test/api/account/games", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ roomCode: "abc234" })
+    }), env);
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(values, ["ABC234", userId]);
+    assert.match(query, /DELETE FROM saved_game_players WHERE room_code = \? AND user_id = \?/);
+    assert.doesNotMatch(query, /DELETE FROM saved_games/i);
+    assert.equal(payload.removed, true);
+});
+
+test("My Games removal validates room codes", async () => {
+    const { token, env } = await setupToken();
+    let called = false;
+    env.DB.prepare = () => { called = true; throw new Error("Should not query the database"); };
+    const response = await handleAccountApi(new Request("https://game.test/api/account/games", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ roomCode: "bad code" })
+    }), env);
+    assert.equal(response.status, 400);
+    assert.equal(called, false);
+});
